@@ -144,7 +144,13 @@ def admin_page():
         st.subheader("Existing Races")
         races = db.get_all_races()
         if races:
+            unique_groups_1 = sorted(list(set([r.get("group", "Default") for r in races])))
+            filter_options_1 = ["All Groups"] + unique_groups_1
+            selected_group_filter_1 = st.selectbox("Filter by Group:", options=filter_options_1, key="filter_races")
+
             for r in races:
+                if selected_group_filter_1 != "All Groups" and r.get("group", "Default") != selected_group_filter_1:
+                    continue
                 with st.expander(f"Race {r.get('order')}: {r.get('name')} [{r.get('group', 'Default')}]"):
                     with st.form(f"edit_race_{r['id']}"):
                         e_name = st.text_input("Race Name", value=r.get('name', ''))
@@ -187,8 +193,15 @@ def admin_page():
         st.markdown("---")
         st.subheader("Existing Roster")
         all_horses = db.get_all_global_horses()
-        for h in all_horses:
-            with st.expander(f"{h.get('umamusume')} ({h.get('division', 'Unknown')}) - Tr: {h.get('trainer')}"):
+        if all_horses:
+            unique_divs = ["Sprint", "Mile", "Medium", "Long"]
+            filter_options_div = ["All Divisions"] + unique_divs
+            selected_div_filter = st.selectbox("Filter by Division:", options=filter_options_div, key="filter_horses")
+
+            for h in all_horses:
+                if selected_div_filter != "All Divisions" and h.get("division", "Sprint") != selected_div_filter:
+                    continue
+                with st.expander(f"{h.get('umamusume')} ({h.get('division', 'Unknown')}) - Tr: {h.get('trainer')}"):
                 with st.form(f"edit_ghorse_{h['id']}"):
                     e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
                     e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
@@ -234,14 +247,17 @@ def admin_page():
                     req_div = 'Long'
                 st.info(f"**Race Distance**: {dist_str} ➡️ **Required Division**: {req_div}")
             
+            curr_entries = db.get_horses_for_race(selected_race_id)
+            current_entry_ids = [h['id'] for h in curr_entries]
+            
             # Form to add entry
             with st.form("add_race_entry_form"):
                 all_global_horses = db.get_all_global_horses()
-                # filter by required division
-                available_horses = [h for h in all_global_horses if h.get('division') == req_div]
+                # filter by required division and exclude already entered
+                available_horses = [h for h in all_global_horses if h.get('division') == req_div and h['id'] not in current_entry_ids]
                 
                 if not available_horses:
-                    st.warning(f"No global horses found in the '{req_div}' division. Add them in the Horses roster tab.")
+                    st.warning(f"No further global horses from the '{req_div}' division are available.")
                     submit_entry = st.form_submit_button("Assign Entry", disabled=True)
                 else:
                     h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in available_horses}
@@ -255,7 +271,6 @@ def admin_page():
             
             st.markdown("---")
             st.subheader("Current Entries in Race")
-            curr_entries = db.get_horses_for_race(selected_race_id)
             if not curr_entries:
                 st.write("No entries yet.")
             for h in curr_entries:
@@ -269,14 +284,21 @@ def admin_page():
     with tabs[3]:
         st.subheader("Race Locks & Results")
         races = db.get_all_races()
-        from collections import defaultdict
-        
-        grp_races = defaultdict(list)
-        for r in races: grp_races[r.get("group", "Default")].append(r)
-        
-        for g_name, r_list in grp_races.items():
-            st.markdown(f"#### {g_name}")
-            for r in r_list:
+        if races:
+            unique_groups_2 = sorted(list(set([r.get("group", "Default") for r in races])))
+            filter_options_2 = ["All Groups"] + unique_groups_2
+            selected_group_filter_2 = st.selectbox("Filter by Group:", options=filter_options_2, key="filter_ops")
+            
+            from collections import defaultdict
+            grp_races = defaultdict(list)
+            for r in races: 
+                if selected_group_filter_2 != "All Groups" and r.get("group", "Default") != selected_group_filter_2:
+                    continue
+                grp_races[r.get("group", "Default")].append(r)
+            
+            for g_name, r_list in grp_races.items():
+                st.markdown(f"#### {g_name}")
+                for r in r_list:
                 with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
                     # Lock status
                     is_locked = r.get('locked', False)
@@ -391,6 +413,7 @@ def user_picks_page():
         return
         
     user_picks = db.get_user_picks(st.session_state.user)
+    points_cfg = db.get_points_config()
     
     unique_groups = sorted(list(set([r.get("group", "Default") for r in races])))
     filter_options = ["All Groups"] + unique_groups
@@ -419,6 +442,8 @@ def user_picks_page():
                     continue
                     
                 current_pick_id = user_picks.get(r['id'])
+                race_results = r.get("results", {})
+                results_inv = {v: k for k, v in race_results.items()}
                 
                 # Show current pick prominently
                 if current_pick_id:
@@ -448,7 +473,11 @@ def user_picks_page():
                             st.markdown(f"**{h.get('umamusume')}**")
                             st.caption(f"Tr: {h.get('trainer')}")
                         with col_stats:
-                            if h.get('stats_img_url'):
+                            if h['id'] in results_inv:
+                                place = results_inv[h['id']]
+                                pts = points_cfg.get(place, 0)
+                                st.markdown(f"<div style='text-align:center;'><b>🏆 {place}</b><br>{pts} pts</div>", unsafe_allow_html=True)
+                            elif h.get('stats_img_url'):
                                 with st.popover("Stats"):
                                     try:
                                         simg = load_image_from_url(h.get('stats_img_url'), width=300)
