@@ -520,6 +520,7 @@ def leaderboard_page():
         
     with tab_users:
         scores = {u['username']: 0 for u in all_users}
+        user_breakdowns = {u['username']: [] for u in all_users}
         
         # Calculate scores
         for r in races:
@@ -531,6 +532,8 @@ def leaderboard_page():
                 continue
                 
             r_id = r['id']
+            race_name = r.get('name', 'Unknown Race')
+            horses = db.get_horses_for_race(r_id)
             
             for pick in picks_list:
                 if pick.get("race_id") == r_id:
@@ -539,28 +542,52 @@ def leaderboard_page():
                     
                     if p_uid not in scores:
                         scores[p_uid] = 0
+                        user_breakdowns[p_uid] = []
                         
                     for place, winner_hid in results.items():
                         if p_hid == winner_hid:
-                            scores[p_uid] += int(points_cfg.get(place, 0))
+                            pts = int(points_cfg.get(place, 0))
+                            scores[p_uid] += pts
+                            
+                            winning_h = next((h for h in horses if h['id'] == winner_hid), None)
+                            h_name = winning_h.get('umamusume', 'Unknown') if winning_h else 'Unknown'
+                            
+                            user_breakdowns[p_uid].append({
+                                'race': race_name,
+                                'horse': h_name,
+                                'place': place,
+                                'pts': pts
+                            })
                         
         # Sort and display
         sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         
         st.markdown("---")
         for i, (uname, score) in enumerate(sorted_scores):
-            if i == 0 and score > 0:
-                st.markdown(f"### 🥇 1. **{uname}** - {score} pts")
-            elif i == 1 and score > 0:
-                st.markdown(f"### 🥈 2. **{uname}** - {score} pts")
-            elif i == 2 and score > 0:
-                st.markdown(f"### 🥉 3. **{uname}** - {score} pts")
-            else:
-                rank = i + 1
-                st.markdown(f"**{rank}. {uname}** - {score} pts")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                if i == 0 and score > 0:
+                    st.markdown(f"### 🥇 1. **{uname}** - {score} pts")
+                elif i == 1 and score > 0:
+                    st.markdown(f"### 🥈 2. **{uname}** - {score} pts")
+                elif i == 2 and score > 0:
+                    st.markdown(f"### 🥉 3. **{uname}** - {score} pts")
+                else:
+                    rank = i + 1
+                    st.markdown(f"**{rank}. {uname}** - {score} pts")
+            with col2:
+                with st.popover("Breakdown"):
+                    if not user_breakdowns.get(uname):
+                        st.write("No points scored yet.")
+                    else:
+                        for bdoc in user_breakdowns[uname]:
+                            st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
+                            st.markdown("---")
                 
     with tab_trainers:
         trainer_scores = {}
+        trainer_breakdowns = {}
+        
         for r in races:
             if selected_group_filter != "Total (All Races)" and r.get("group", "Default") != selected_group_filter:
                 continue
@@ -569,14 +596,26 @@ def leaderboard_page():
             if not results:
                 continue
             r_id = r['id']
+            race_name = r.get('name', 'Unknown Race')
             horses = db.get_horses_for_race(r_id)
             for place, winner_hid in results.items():
                 winning_h = next((h for h in horses if h['id'] == winner_hid), None)
                 if winning_h:
                     t_name = winning_h.get('trainer', 'Unknown Trainer')
+                    h_name = winning_h.get('umamusume', 'Unknown')
+                    
                     if t_name not in trainer_scores:
                         trainer_scores[t_name] = 0
-                    trainer_scores[t_name] += int(points_cfg.get(place, 0))
+                        trainer_breakdowns[t_name] = []
+                        
+                    pts = int(points_cfg.get(place, 0))
+                    trainer_scores[t_name] += pts
+                    trainer_breakdowns[t_name].append({
+                        'race': race_name,
+                        'horse': h_name,
+                        'place': place,
+                        'pts': pts
+                    })
                     
         sorted_t_scores = sorted(trainer_scores.items(), key=lambda x: x[1], reverse=True)
         
@@ -585,15 +624,25 @@ def leaderboard_page():
             st.info(f"No trainer points awarded yet for '{selected_group_filter}'.")
         else:
             for i, (tname, score) in enumerate(sorted_t_scores):
-                if i == 0 and score > 0:
-                    st.markdown(f"### 🥇 1. **{tname}** - {score} pts")
-                elif i == 1 and score > 0:
-                    st.markdown(f"### 🥈 2. **{tname}** - {score} pts")
-                elif i == 2 and score > 0:
-                    st.markdown(f"### 🥉 3. **{tname}** - {score} pts")
-                else:
-                    rank = i + 1
-                    st.markdown(f"**{rank}. {tname}** - {score} pts")
+                col1, col2 = st.columns([4,1])
+                with col1:
+                    if i == 0 and score > 0:
+                        st.markdown(f"### 🥇 1. **{tname}** - {score} pts")
+                    elif i == 1 and score > 0:
+                        st.markdown(f"### 🥈 2. **{tname}** - {score} pts")
+                    elif i == 2 and score > 0:
+                        st.markdown(f"### 🥉 3. **{tname}** - {score} pts")
+                    else:
+                        rank = i + 1
+                        st.markdown(f"**{rank}. {tname}** - {score} pts")
+                with col2:
+                    with st.popover("Breakdown"):
+                        if not trainer_breakdowns.get(tname):
+                            st.write("No points scored yet.")
+                        else:
+                            for bdoc in trainer_breakdowns[tname]:
+                                st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
+                                st.markdown("---")
             
     st.markdown("---")
     st.markdown("### Point System")
