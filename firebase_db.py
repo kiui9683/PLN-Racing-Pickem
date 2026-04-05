@@ -101,6 +101,19 @@ def delete_race(race_id):
     db.collection("races").document(race_id).delete()
     return True
 
+def edit_race(race_id, name, racetrack, distance, surface, order, group):
+    db = get_db()
+    if not db: return False
+    db.collection("races").document(race_id).update({
+        "name": name,
+        "racetrack": racetrack,
+        "distance": distance,
+        "surface": surface,
+        "order": order,
+        "group": group
+    })
+    return True
+
 def toggle_race_lock(race_id, lock_status):
     db = get_db()
     if not db: return False
@@ -114,6 +127,14 @@ def set_race_results(race_id, results_dict):
     if not db: return False
     db.collection("races").document(race_id).update({
         "results": results_dict
+    })
+    return True
+
+def clear_race_results(race_id):
+    db = get_db()
+    if not db: return False
+    db.collection("races").document(race_id).update({
+        "results": {}
     })
     return True
 
@@ -141,6 +162,18 @@ def delete_horse(horse_id):
     db = get_db()
     if not db: return False
     db.collection("horses").document(horse_id).delete()
+    return True
+
+def edit_horse(horse_id, umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url):
+    db = get_db()
+    if not db: return False
+    db.collection("horses").document(horse_id).update({
+        "umamusume": umamusume,
+        "trainer": trainer,
+        "horse_img_url": horse_img_url,
+        "trainer_img_url": trainer_img_url,
+        "stats_img_url": stats_img_url
+    })
     return True
 
 # --- PICKS ---

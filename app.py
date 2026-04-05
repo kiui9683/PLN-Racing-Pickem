@@ -145,12 +145,26 @@ def admin_page():
         races = db.get_all_races()
         if races:
             for r in races:
-                col1, col2 = st.columns([4,1])
-                grp_label = f" [{r.get('group')}]" if r.get('group') and r.get('group') != "Default" else ""
-                col1.markdown(f"**Race {r.get('order')}: {r.get('name')}**{grp_label} - {r.get('racetrack')} | Locked: {r.get('locked')}")
-                if col2.button("Delete", key=f"del_race_{r['id']}"):
-                    db.delete_race(r['id'])
-                    st.rerun()
+                with st.expander(f"Race {r.get('order')}: {r.get('name')} [{r.get('group', 'Default')}]"):
+                    with st.form(f"edit_race_{r['id']}"):
+                        e_name = st.text_input("Race Name", value=r.get('name', ''))
+                        col0, col1 = st.columns(2)
+                        e_track = col0.text_input("Racetrack", value=r.get('racetrack', ''))
+                        e_group = col1.text_input("Race Group", value=r.get('group', 'Default'))
+                        col2, col3 = st.columns(2)
+                        e_dist = col2.text_input("Distance", value=r.get('distance', ''))
+                        sel_idx = 0 if r.get('surface', 'Turf') == 'Turf' else 1
+                        e_surf = col3.selectbox("Surface", ["Turf", "Dirt"], index=sel_idx)
+                        e_order = st.number_input("Race Order Number", value=int(r.get('order', 1)))
+                        
+                        col_save, col_del = st.columns(2)
+                        if col_save.form_submit_button("Save Changes"):
+                            db.edit_race(r['id'], e_name, e_track, e_dist, e_surf, e_order, e_group)
+                            st.success("Updated!")
+                            st.rerun()
+                        if col_del.form_submit_button("Delete Race"):
+                            db.delete_race(r['id'])
+                            st.rerun()
 
     # 2. ENTRIES
     with tabs[1]:
@@ -179,11 +193,22 @@ def admin_page():
             st.subheader("Entries in Selected Race")
             horses = db.get_horses_for_race(selected_race_id)
             for h in horses:
-                col1, col2 = st.columns([4,1])
-                col1.write(f"**{h.get('umamusume')}** (Trainer: {h.get('trainer')})")
-                if col2.button("Delete Entry", key=f"del_h_{h['id']}"):
-                    db.delete_horse(h['id'])
-                    st.rerun()
+                with st.expander(f"{h.get('umamusume')} (Trainer: {h.get('trainer')})"):
+                    with st.form(f"edit_horse_{h['id']}"):
+                        e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
+                        e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
+                        e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
+                        e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
+                        e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
+                        
+                        col_save, col_del = st.columns(2)
+                        if col_save.form_submit_button("Save Changes"):
+                            db.edit_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg)
+                            st.success("Updated!")
+                            st.rerun()
+                        if col_del.form_submit_button("Delete Entry"):
+                            db.delete_horse(h['id'])
+                            st.rerun()
 
     # 3. OPERATIONS
     with tabs[2]:
@@ -217,13 +242,27 @@ def admin_page():
                         with st.form(form_key):
                             res_inputs = {}
                             sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
-                            for place in sorted_placements:
+                            max_places = min(len(horses), len(sorted_placements))
+                            for place in sorted_placements[:max_places]:
                                 res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
                             
-                            if st.form_submit_button("Save Results"):
+                            col_s, col_c = st.columns(2)
+                            if col_s.form_submit_button("Save Results"):
                                 res_dict = {place: hid for place, hid in res_inputs.items() if hid}
-                                db.set_race_results(r['id'], res_dict)
-                                st.success("Results updated!")
+                                
+                                # Validate duplicates
+                                values = list(res_dict.values())
+                                if len(values) != len(set(values)):
+                                    st.error("Validation Error: A horse cannot be assigned to multiple placements.")
+                                else:
+                                    db.set_race_results(r['id'], res_dict)
+                                    st.success("Results updated!")
+                                    st.rerun()
+                                    
+                            if col_c.form_submit_button("Clear Results"):
+                                db.clear_race_results(r['id'])
+                                st.success("Results cleared!")
+                                st.rerun()
 
     # 4. POINTS CONFIG
     with tabs[3]:
@@ -298,9 +337,16 @@ def user_picks_page():
         
     user_picks = db.get_user_picks(st.session_state.user)
     
+    unique_groups = sorted(list(set([r.get("group", "Default") for r in races])))
+    filter_options = ["All Groups"] + unique_groups
+    selected_group_filter = st.selectbox("🎯 Filter Picks by Group:", options=filter_options)
+    st.markdown("---")
+    
     from collections import defaultdict
     grouped_races = defaultdict(list)
     for r in races:
+        if selected_group_filter != "All Groups" and r.get("group", "Default") != selected_group_filter:
+            continue
         grouped_races[r.get("group", "Default")].append(r)
         
     for group_name, group_races in grouped_races.items():
@@ -312,54 +358,59 @@ def user_picks_page():
             
             with st.expander(f"Race {r.get('order')}: {r.get('name')} | {r.get('racetrack')} | {r.get('distance')} | {lock_msg}", expanded=True):
                 horses = db.get_horses_for_race(r['id'])
-            
-            if not horses:
-                st.write("No entries yet.")
-                continue
                 
-            current_pick_id = user_picks.get(r['id'])
-            
-            # Show current pick prominently
-            if current_pick_id:
-                ch = next((h for h in horses if h['id'] == current_pick_id), None)
-                if ch:
-                    st.success(f"**Your Pick:** {ch.get('umamusume')} (Trained by {ch.get('trainer')})")
-            else:
-                st.warning("You have not made a pick for this race.")
-                
-            if not is_locked:
-                st.markdown("---")
-                # selection interface
-                h_options = {h['id']: f"{h.get('umamusume')} (Trainer: {h.get('trainer')})" for h in horses}
-                
-                # pre-select if exists
-                sel_index = list(h_options.keys()).index(current_pick_id) if current_pick_id in h_options else 0
-                
-                selected_h = st.radio("Select a Horse", options=list(h_options.keys()), format_func=lambda x: h_options[x], index=sel_index, key=f"radio_{r['id']}")
-                if st.button("Save Pick", key=f"save_{r['id']}"):
-                    if db.make_pick(st.session_state.user, r['id'], selected_h):
-                        st.toast("Pick saved successfully!")
-                        st.rerun()
-            
-            # Show Horse Detailed info
-            st.markdown("#### The Field")
-            cols = st.columns(min(len(horses), 4) if len(horses) > 0 else 1)
-            for idx, h in enumerate(horses):
-                c = cols[idx % 4]
-                with c:
-                    try:
-                        img = load_image_from_url(h.get('horse_img_url'), width=100)
-                        st.image(img, use_container_width=True)
-                    except:
-                        pass
-                    st.markdown(f"**{h.get('umamusume')}**")
-                    st.caption(f"Tr: {h.get('trainer')}")
+                if not horses:
+                    st.write("No entries yet.")
+                    continue
                     
-                    if st.button("Stats", key=f"st_{h['id']}"):
-                        try:
-                            st.image(load_image_from_url(h.get('stats_img_url'), width=300))
-                        except:
-                            st.caption("-")
+                current_pick_id = user_picks.get(r['id'])
+                
+                # Show current pick prominently
+                if current_pick_id:
+                    ch = next((h for h in horses if h['id'] == current_pick_id), None)
+                    if ch:
+                        st.success(f"**Your Pick:** {ch.get('umamusume')} (Trained by {ch.get('trainer')})")
+                else:
+                    st.warning("You have not made a pick for this race.")
+                    
+                st.markdown("#### The Field")
+                for h in horses:
+                    with st.container():
+                        col_himg, col_timg, col_name, col_stats, col_btn = st.columns([1, 1, 3, 1, 2])
+                        with col_himg:
+                            try:
+                                img = load_image_from_url(h.get('horse_img_url'), width=60)
+                                st.image(img, width=60)
+                            except:
+                                st.write("🏇")
+                        with col_timg:
+                            try:
+                                timg = load_image_from_url(h.get('trainer_img_url'), width=60)
+                                st.image(timg, width=60)
+                            except:
+                                pass
+                        with col_name:
+                            st.markdown(f"**{h.get('umamusume')}**")
+                            st.caption(f"Tr: {h.get('trainer')}")
+                        with col_stats:
+                            if h.get('stats_img_url'):
+                                with st.popover("Stats"):
+                                    try:
+                                        simg = load_image_from_url(h.get('stats_img_url'), width=300)
+                                        st.image(simg, use_container_width=True)
+                                    except:
+                                        st.write("No stats available.")
+                        with col_btn:
+                            if not is_locked:
+                                btn_label = "✅ Selected" if h['id'] == current_pick_id else "Select"
+                                is_disabled = h['id'] == current_pick_id
+                                if st.button(btn_label, disabled=is_disabled, key=f"sel_{r['id']}_{h['id']}"):
+                                    if db.make_pick(st.session_state.user, r['id'], h['id']):
+                                        st.toast("Pick saved successfully!", icon="✅")
+                                        st.rerun()
+                            elif h['id'] == current_pick_id:
+                                st.info("Locked In")
+                    st.markdown("---")
 
 
 def leaderboard_page():
