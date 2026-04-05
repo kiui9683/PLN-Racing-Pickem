@@ -54,6 +54,20 @@ def authenticate_user(username, password):
         return True, user_data
     return False, None
 
+def update_user_role(username, new_role):
+    db = get_db()
+    if not db: return False
+    db.collection("users").document(username).update({
+        "role": new_role
+    })
+    return True
+
+def delete_user(username):
+    db = get_db()
+    if not db: return False
+    db.collection("users").document(username).delete()
+    return True
+
 # --- RACES ---
 def get_all_races():
     db = get_db()

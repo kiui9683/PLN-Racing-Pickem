@@ -16,9 +16,7 @@ st.markdown("""
     }
     h1, h2, h3 {
         font-family: 'Inter', sans-serif;
-        background: -webkit-linear-gradient(45deg, #FFD700, #FFA500);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #FBBF24; /* Solid premium gold to preserve native emoji colors */
     }
     hr {
         border-color: rgba(255, 255, 255, 0.1);
@@ -74,45 +72,53 @@ def login_page():
         tab1, tab2 = st.tabs(["Login", "Sign Up"])
         
         with tab1:
-            l_username = st.text_input("Username", key="l_user")
-            l_password = st.text_input("Password", type="password", key="l_pass")
-            if st.button("Login", use_container_width=True):
-                if l_username and l_password:
-                    with st.spinner("Authenticating..."):
-                        success, user_data = db.authenticate_user(l_username, l_password)
-                        if success:
-                            st.session_state.user = l_username
-                            st.session_state.role = user_data.get("role", "user")
-                            st.session_state.page = "My Picks"
-                            st.rerun()
-                        else:
-                            st.error("Invalid username or password.")
+            with st.form("login_form"):
+                l_username = st.text_input("Username", key="l_user")
+                l_password = st.text_input("Password", type="password", key="l_pass")
+                if st.form_submit_button("Login", use_container_width=True):
+                    if l_username and l_password:
+                        with st.spinner("Authenticating..."):
+                            success, user_data = db.authenticate_user(l_username, l_password)
+                            if success:
+                                st.session_state.user = l_username
+                                st.session_state.role = user_data.get("role", "user")
+                                st.session_state.page = "My Picks"
+                                st.rerun()
+                            else:
+                                st.error("Invalid username or password.")
                             
         with tab2:
-            s_username = st.text_input("Choose Username", key="s_user")
-            s_password = st.text_input("Choose Password", type="password", key="s_pass")
-            s_admin_code = st.text_input("Admin Code (Optional)", type="password") # Secret logic to create admin
-            if st.button("Create Account", use_container_width=True):
-                if s_username and s_password:
-                    with st.spinner("Creating account..."):
-                        role = "admin" if s_admin_code == "PLN2026ADMIN" else "user"
-                        success, msg = db.create_user(s_username, s_password, role)
-                        if success:
-                            st.success(msg + " You can now log in.")
-                        else:
-                            st.error(msg)
-                else:
-                    st.warning("Please fill out all fields.")
+            with st.form("signup_form"):
+                s_username = st.text_input("Choose Username", key="s_user")
+                s_password = st.text_input("Choose Password", type="password", key="s_pass")
+                if st.form_submit_button("Create Account", use_container_width=True):
+                    if s_username and s_password:
+                        with st.spinner("Creating account..."):
+                            success, msg = db.create_user(s_username, s_password, "user")
+                            if success:
+                                st.session_state.user = s_username
+                                st.session_state.role = "user"
+                                st.session_state.page = "My Picks"
+                                st.success("Account created! Logging in...")
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    else:
+                        st.warning("Please fill out all fields.")
 
 def admin_page():
-    if st.session_state.role != "admin":
+    if st.session_state.role not in ["admin", "manager"]:
         st.warning("Unauthorized access.")
         return
         
-    st.title("🛠️ Admin Panel")
+    st.title("🛠️ Management Panel")
     st.caption("Manage the entire Pick'em site from here.")
     
-    tabs = st.tabs(["Races", "Entries (Horses)", "Operations", "Points Config"])
+    tabs_list = ["Races", "Entries (Horses)", "Operations", "Points Config"]
+    if st.session_state.role == "admin":
+        tabs_list.append("Users")
+    
+    tabs = st.tabs(tabs_list)
     
     # 1. RACES
     with tabs[0]:
@@ -194,18 +200,17 @@ def admin_page():
                 if horses:
                     h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
                     h_options[""] = "--- Select ---"
+                    pts_cfg = db.get_points_config()
                     
                     form_key = f"results_form_{r['id']}"
                     with st.form(form_key):
-                        first = st.selectbox("1st Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"1st_{r['id']}")
-                        second = st.selectbox("2nd Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"2nd_{r['id']}")
-                        third = st.selectbox("3rd Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"3rd_{r['id']}")
+                        res_inputs = {}
+                        sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
+                        for place in sorted_placements:
+                            res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
                         
                         if st.form_submit_button("Save Results"):
-                            res_dict = {}
-                            if first: res_dict["1"] = first
-                            if second: res_dict["2"] = second
-                            if third: res_dict["3"] = third
+                            res_dict = {place: hid for place, hid in res_inputs.items() if hid}
                             db.set_race_results(r['id'], res_dict)
                             st.success("Results updated!")
 
@@ -213,13 +218,62 @@ def admin_page():
     with tabs[3]:
         st.subheader("Points Settings")
         pts = db.get_points_config()
+        
+        st.write("Current Settings:")
         with st.form("points_form"):
-            p1 = st.number_input("Points for 1st Place", value=int(pts.get("1", 10)))
-            p2 = st.number_input("Points for 2nd Place", value=int(pts.get("2", 5)))
-            p3 = st.number_input("Points for 3rd Place", value=int(pts.get("3", 3)))
-            if st.form_submit_button("Update Points"):
-                db.update_points_config({"1": p1, "2": p2, "3": p3})
+            new_pts = {}
+            for place, point_val in sorted(pts.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0]):
+                new_pts[place] = st.number_input(f"Points for {place} Place", value=int(point_val))
+            if st.form_submit_button("Update Existing Points"):
+                db.update_points_config(new_pts)
                 st.success("Points setup updated.")
+                st.rerun()
+                
+        st.markdown("---")
+        st.subheader("Add or Remove Placements")
+        col1, col2 = st.columns(2)
+        with col1:
+            with st.form("add_point_form"):
+                new_p_name = st.text_input("New Placement Name (e.g., '4', 'Last')")
+                new_p_val = st.number_input("Points", value=1)
+                submit_add = st.form_submit_button("Add Placement")
+                if submit_add and new_p_name:
+                    pts[new_p_name] = new_p_val
+                    db.update_points_config(pts)
+                    st.success(f"Added {new_p_name}")
+                    st.rerun()
+        with col2:
+            with st.form("del_point_form"):
+                delete_place = st.selectbox("Delete Placement", options=[""] + list(pts.keys()))
+                submit_del = st.form_submit_button("Delete")
+                if submit_del and delete_place in pts:
+                    del pts[delete_place]
+                    db.update_points_config(pts)
+                    st.success(f"Deleted {delete_place}")
+                    st.rerun()
+
+    # 5. USERS (Admin Only)
+    if st.session_state.role == "admin" and len(tabs) > 4:
+        with tabs[4]:
+            st.subheader("User Management")
+            users = db.get_all_users()
+            for u in sorted(users, key=lambda x: x['role']):
+                with st.expander(f"👤 {u['username']} (Role: {u['role']})"):
+                    col_role, col_del = st.columns(2)
+                    with col_role:
+                        new_role = st.selectbox("Role", ["user", "manager", "admin"], index=["user", "manager", "admin"].index(u['role']), key=f"role_{u['username']}")
+                        if st.button("Update Role", key=f"btn_role_{u['username']}"):
+                            db.update_user_role(u['username'], new_role)
+                            st.success("Role updated.")
+                            st.rerun()
+                    with col_del:
+                        if st.button("Delete User", key=f"del_user_{u['username']}"):
+                            if u['username'] == st.session_state.user:
+                                st.error("Cannot delete yourself!")
+                            else:
+                                db.delete_user(u['username'])
+                                st.success("User deleted.")
+                                st.rerun()
 
 
 def user_picks_page():
@@ -311,9 +365,6 @@ def leaderboard_page():
             continue
             
         r_id = r['id']
-        winner_id_1 = results.get("1")
-        winner_id_2 = results.get("2")
-        winner_id_3 = results.get("3")
         
         for pick in picks_list:
             if pick.get("race_id") == r_id:
@@ -323,14 +374,9 @@ def leaderboard_page():
                 if p_uid not in scores:
                     scores[p_uid] = 0
                     
-                if p_hid == winner_id_1:
-                    scores[p_uid] += int(points_cfg.get("1", 0))
-                # Note: Currently users only pick ONE horse. So we only check if their pick won 1st.
-                # If you want them to get points if their picked horse came 2nd/3rd, uncomment:
-                elif p_hid == winner_id_2:
-                    scores[p_uid] += int(points_cfg.get("2", 0))
-                elif p_hid == winner_id_3:
-                    scores[p_uid] += int(points_cfg.get("3", 0))
+                for place, winner_hid in results.items():
+                    if p_hid == winner_hid:
+                        scores[p_uid] += int(points_cfg.get(place, 0))
                     
     # Sort and display
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -349,7 +395,8 @@ def leaderboard_page():
             
     st.markdown("---")
     st.markdown("### Point System")
-    st.info(f"1st Place Pick = {points_cfg.get('1')} pts | 2nd Place Pick = {points_cfg.get('2')} pts | 3rd Place Pick = {points_cfg.get('3')} pts")
+    point_str = " | ".join([f"{k} Place = {v} pts" for k, v in sorted(points_cfg.items(), key=lambda x: int(x[0]) if x[0].isdigit() else x[0])])
+    st.info(point_str)
 
 
 # --- MAIN APP LAYOUT ---
@@ -367,9 +414,9 @@ def main():
                 st.session_state.page = "Leaderboard"
                 st.rerun()
                 
-            if st.session_state.role == "admin":
+            if st.session_state.role in ["admin", "manager"]:
                 st.markdown("---")
-                if st.button("🛠️ Admin Panel", use_container_width=True):
+                if st.button("🛠️ Management Panel", use_container_width=True):
                     st.session_state.page = "Admin"
                     st.rerun()
                     
