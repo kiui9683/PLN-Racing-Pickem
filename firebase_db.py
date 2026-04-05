@@ -79,7 +79,7 @@ def get_all_races():
         st.error(f"Error fetching races: {e}")
         return []
 
-def add_race(name, racetrack, distance, surface, order):
+def add_race(name, racetrack, distance, surface, order, group="Default"):
     db = get_db()
     if not db: return False
     db.collection("races").add({
@@ -88,6 +88,7 @@ def add_race(name, racetrack, distance, surface, order):
         "distance": distance,
         "surface": surface,
         "order": order,
+        "group": group,
         "locked": False,
         "results": {} # e.g. {"1": horse_id_A, "2": horse_id_B}
     })

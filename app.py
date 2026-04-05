@@ -125,14 +125,17 @@ def admin_page():
         st.subheader("Add a New Race")
         with st.form("add_race_form"):
             r_name = st.text_input("Race Name")
-            r_track = st.text_input("Racetrack")
-            col1, col2 = st.columns(2)
-            r_dist = col1.text_input("Distance (e.g. 1200m)")
-            r_surf = col2.selectbox("Surface", ["Turf", "Dirt"])
+            col0, col1 = st.columns(2)
+            r_track = col0.text_input("Racetrack")
+            r_group = col1.text_input("Race Group", placeholder="e.g. Group A, Final")
+            col2, col3 = st.columns(2)
+            r_dist = col2.text_input("Distance (e.g. 1200m)")
+            r_surf = col3.selectbox("Surface", ["Turf", "Dirt"])
             r_order = st.number_input("Race Order Number", min_value=1, value=1)
             
             if st.form_submit_button("Add Race"):
-                if db.add_race(r_name, r_track, r_dist, r_surf, r_order):
+                grp = r_group if r_group else "Default"
+                if db.add_race(r_name, r_track, r_dist, r_surf, r_order, grp):
                     st.success("Race added successfully.")
                 else:
                     st.error("Failed to add race. Check DB connection.")
@@ -143,7 +146,8 @@ def admin_page():
         if races:
             for r in races:
                 col1, col2 = st.columns([4,1])
-                col1.markdown(f"**Race {r.get('order')}: {r.get('name')}** - {r.get('racetrack')} | Locked: {r.get('locked')}")
+                grp_label = f" [{r.get('group')}]" if r.get('group') and r.get('group') != "Default" else ""
+                col1.markdown(f"**Race {r.get('order')}: {r.get('name')}**{grp_label} - {r.get('racetrack')} | Locked: {r.get('locked')}")
                 if col2.button("Delete", key=f"del_race_{r['id']}"):
                     db.delete_race(r['id'])
                     st.rerun()
@@ -155,7 +159,7 @@ def admin_page():
         if not races:
             st.info("Please create a race first.")
         else:
-            race_options = {r['id']: f"Race {r.get('order')}: {r.get('name')}" for r in races}
+            race_options = {r['id']: f"[{r.get('group', 'Default')}] Race {r.get('order')}: {r.get('name')}" for r in races}
             selected_race_id = st.selectbox("Select Race", options=list(race_options.keys()), format_func=lambda x: race_options[x])
             
             with st.form("add_horse_form"):
@@ -185,34 +189,41 @@ def admin_page():
     with tabs[2]:
         st.subheader("Race Locks & Results")
         races = db.get_all_races()
-        for r in races:
-            with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
-                # Lock status
-                is_locked = r.get('locked', False)
-                lock_text = "Unlock Race" if is_locked else "Lock Race 🔒"
-                if st.button(lock_text, key=f"lock_{r['id']}"):
-                    db.toggle_race_lock(r['id'], not is_locked)
-                    st.rerun()
-                
-                st.markdown("---")
-                st.markdown("**Enter Results**")
-                horses = db.get_horses_for_race(r['id'])
-                if horses:
-                    h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
-                    h_options[""] = "--- Select ---"
-                    pts_cfg = db.get_points_config()
+        from collections import defaultdict
+        
+        grp_races = defaultdict(list)
+        for r in races: grp_races[r.get("group", "Default")].append(r)
+        
+        for g_name, r_list in grp_races.items():
+            st.markdown(f"#### {g_name}")
+            for r in r_list:
+                with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
+                    # Lock status
+                    is_locked = r.get('locked', False)
+                    lock_text = "Unlock Race" if is_locked else "Lock Race 🔒"
+                    if st.button(lock_text, key=f"lock_{r['id']}"):
+                        db.toggle_race_lock(r['id'], not is_locked)
+                        st.rerun()
                     
-                    form_key = f"results_form_{r['id']}"
-                    with st.form(form_key):
-                        res_inputs = {}
-                        sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
-                        for place in sorted_placements:
-                            res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
+                    st.markdown("---")
+                    st.markdown("**Enter Results**")
+                    horses = db.get_horses_for_race(r['id'])
+                    if horses:
+                        h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
+                        h_options[""] = "--- Select ---"
+                        pts_cfg = db.get_points_config()
                         
-                        if st.form_submit_button("Save Results"):
-                            res_dict = {place: hid for place, hid in res_inputs.items() if hid}
-                            db.set_race_results(r['id'], res_dict)
-                            st.success("Results updated!")
+                        form_key = f"results_form_{r['id']}"
+                        with st.form(form_key):
+                            res_inputs = {}
+                            sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
+                            for place in sorted_placements:
+                                res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
+                            
+                            if st.form_submit_button("Save Results"):
+                                res_dict = {place: hid for place, hid in res_inputs.items() if hid}
+                                db.set_race_results(r['id'], res_dict)
+                                st.success("Results updated!")
 
     # 4. POINTS CONFIG
     with tabs[3]:
@@ -287,12 +298,20 @@ def user_picks_page():
         
     user_picks = db.get_user_picks(st.session_state.user)
     
+    from collections import defaultdict
+    grouped_races = defaultdict(list)
     for r in races:
-        is_locked = r.get("locked", False)
-        lock_msg = "🔒 **LOCKED** - Picks can no longer be changed." if is_locked else "🟢 **OPEN**"
+        grouped_races[r.get("group", "Default")].append(r)
         
-        with st.expander(f"Race {r.get('order')}: {r.get('name')} | {r.get('racetrack')} | {r.get('distance')} | {lock_msg}", expanded=True):
-            horses = db.get_horses_for_race(r['id'])
+    for group_name, group_races in grouped_races.items():
+        st.markdown(f"<h2 style='text-align: center; color: #FBBF24; margin-top: 30px;'>🚩 {group_name}</h2>", unsafe_allow_html=True)
+        
+        for r in group_races:
+            is_locked = r.get("locked", False)
+            lock_msg = "🔒 **LOCKED** - Picks can no longer be changed." if is_locked else "🟢 **OPEN**"
+            
+            with st.expander(f"Race {r.get('order')}: {r.get('name')} | {r.get('racetrack')} | {r.get('distance')} | {lock_msg}", expanded=True):
+                horses = db.get_horses_for_race(r['id'])
             
             if not horses:
                 st.write("No entries yet.")
@@ -344,8 +363,8 @@ def user_picks_page():
 
 
 def leaderboard_page():
-    st.title("🏆 Leaderboard")
-    st.caption("Ranking based on Official Race Results.")
+    st.title("🏆 Leaderboards")
+    st.caption("Rankings based on Official Race Results.")
     
     races = db.get_all_races()
     picks_list = db.get_all_picks()
@@ -356,42 +375,90 @@ def leaderboard_page():
         st.info("No races yet.")
         return
         
-    scores = {u['username']: 0 for u in all_users}
+    unique_groups = sorted(list(set([r.get("group", "Default") for r in races])))
+    filter_options = ["Total (All Races)"] + unique_groups
     
-    # Calculate scores
-    for r in races:
-        results = r.get("results", {})
-        if not results:
-            continue
-            
-        r_id = r['id']
+    # Filter selection
+    selected_group_filter = st.selectbox("📊 Filter Leaderboard Data:", options=filter_options)
+    
+    tab_users, tab_trainers = st.tabs(["👤 User Pick'em", "🏇 Trainer Standings"])
         
-        for pick in picks_list:
-            if pick.get("race_id") == r_id:
-                p_uid = pick.get("username")
-                p_hid = pick.get("horse_id")
+    with tab_users:
+        scores = {u['username']: 0 for u in all_users}
+        
+        # Calculate scores
+        for r in races:
+            if selected_group_filter != "Total (All Races)" and r.get("group", "Default") != selected_group_filter:
+                continue
                 
-                if p_uid not in scores:
-                    scores[p_uid] = 0
+            results = r.get("results", {})
+            if not results:
+                continue
+                
+            r_id = r['id']
+            
+            for pick in picks_list:
+                if pick.get("race_id") == r_id:
+                    p_uid = pick.get("username")
+                    p_hid = pick.get("horse_id")
                     
-                for place, winner_hid in results.items():
-                    if p_hid == winner_hid:
-                        scores[p_uid] += int(points_cfg.get(place, 0))
+                    if p_uid not in scores:
+                        scores[p_uid] = 0
+                        
+                    for place, winner_hid in results.items():
+                        if p_hid == winner_hid:
+                            scores[p_uid] += int(points_cfg.get(place, 0))
+                        
+        # Sort and display
+        sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        
+        st.markdown("---")
+        for i, (uname, score) in enumerate(sorted_scores):
+            if i == 0 and score > 0:
+                st.markdown(f"### 🥇 1. **{uname}** - {score} pts")
+            elif i == 1 and score > 0:
+                st.markdown(f"### 🥈 2. **{uname}** - {score} pts")
+            elif i == 2 and score > 0:
+                st.markdown(f"### 🥉 3. **{uname}** - {score} pts")
+            else:
+                rank = i + 1
+                st.markdown(f"**{rank}. {uname}** - {score} pts")
+                
+    with tab_trainers:
+        trainer_scores = {}
+        for r in races:
+            if selected_group_filter != "Total (All Races)" and r.get("group", "Default") != selected_group_filter:
+                continue
+                
+            results = r.get("results", {})
+            if not results:
+                continue
+            r_id = r['id']
+            horses = db.get_horses_for_race(r_id)
+            for place, winner_hid in results.items():
+                winning_h = next((h for h in horses if h['id'] == winner_hid), None)
+                if winning_h:
+                    t_name = winning_h.get('trainer', 'Unknown Trainer')
+                    if t_name not in trainer_scores:
+                        trainer_scores[t_name] = 0
+                    trainer_scores[t_name] += int(points_cfg.get(place, 0))
                     
-    # Sort and display
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    
-    st.markdown("---")
-    for i, (uname, score) in enumerate(sorted_scores):
-        if i == 0 and score > 0:
-            st.markdown(f"### 🥇 1. **{uname}** - {score} pts")
-        elif i == 1 and score > 0:
-            st.markdown(f"### 🥈 2. **{uname}** - {score} pts")
-        elif i == 2 and score > 0:
-            st.markdown(f"### 🥉 3. **{uname}** - {score} pts")
+        sorted_t_scores = sorted(trainer_scores.items(), key=lambda x: x[1], reverse=True)
+        
+        st.markdown("---")
+        if not sorted_t_scores:
+            st.info(f"No trainer points awarded yet for '{selected_group_filter}'.")
         else:
-            rank = i + 1
-            st.markdown(f"**{rank}. {uname}** - {score} pts")
+            for i, (tname, score) in enumerate(sorted_t_scores):
+                if i == 0 and score > 0:
+                    st.markdown(f"### 🥇 1. **{tname}** - {score} pts")
+                elif i == 1 and score > 0:
+                    st.markdown(f"### 🥈 2. **{tname}** - {score} pts")
+                elif i == 2 and score > 0:
+                    st.markdown(f"### 🥉 3. **{tname}** - {score} pts")
+                else:
+                    rank = i + 1
+                    st.markdown(f"**{rank}. {tname}** - {score} pts")
             
     st.markdown("---")
     st.markdown("### Point System")
