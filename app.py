@@ -60,7 +60,7 @@ if 'user' not in st.session_state:
 if 'role' not in st.session_state:
     st.session_state.role = None
 if 'page' not in st.session_state:
-    st.session_state.page = "Login"
+    st.session_state.page = "Login" if not st.session_state.user else "Pick'em"
 
 # --- PAGES ---
 def login_page():
@@ -82,7 +82,7 @@ def login_page():
                             if success:
                                 st.session_state.user = l_username
                                 st.session_state.role = user_data.get("role", "user")
-                                st.session_state.page = "My Picks"
+                                st.session_state.page = "Pick'em"
                                 st.rerun()
                             else:
                                 st.error("Invalid username or password.")
@@ -98,7 +98,7 @@ def login_page():
                             if success:
                                 st.session_state.user = s_username
                                 st.session_state.role = "user"
-                                st.session_state.page = "My Picks"
+                                st.session_state.page = "Pick'em"
                                 st.success("Account created! Logging in...")
                                 st.rerun()
                             else:
@@ -114,7 +114,7 @@ def admin_page():
     st.title("🛠️ Management Panel")
     st.caption("Manage the entire Pick'em site from here.")
     
-    tabs_list = ["Races", "Entries (Horses)", "Operations", "Points Config"]
+    tabs_list = ["Races", "Horses (Roster)", "Entries (Races)", "Operations", "Points Config"]
     if st.session_state.role == "admin":
         tabs_list.append("Users")
     
@@ -166,9 +166,49 @@ def admin_page():
                             db.delete_race(r['id'])
                             st.rerun()
 
-    # 2. ENTRIES
+    # 2. HORSES (ROSTER)
     with tabs[1]:
-        st.subheader("Add Horse to Race")
+        st.subheader("Global Horse Roster")
+        st.write("Add and edit horses in the global pool.")
+        with st.form("add_global_horse_form"):
+            h_trainer = st.text_input("Trainer Name")
+            h_uma = st.text_input("Umamusume Name")
+            h_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"])
+            h_img = st.text_input("Horse Image URL")
+            h_timg = st.text_input("Trainer Image URL")
+            h_simg = st.text_input("Stats Image URL")
+            
+            if st.form_submit_button("Add Horse"):
+                if db.add_global_horse(h_uma, h_trainer, h_img, h_timg, h_simg, h_div):
+                    st.success("Horse added to roster!")
+                else:
+                    st.error("Failed to add.")
+        
+        st.markdown("---")
+        st.subheader("Existing Roster")
+        all_horses = db.get_all_global_horses()
+        for h in all_horses:
+            with st.expander(f"{h.get('umamusume')} ({h.get('division', 'Unknown')}) - Tr: {h.get('trainer')}"):
+                with st.form(f"edit_ghorse_{h['id']}"):
+                    e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
+                    e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
+                    e_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"], index=["Sprint", "Mile", "Medium", "Long"].index(h.get('division', 'Sprint')) if h.get('division') in ["Sprint", "Mile", "Medium", "Long"] else 0)
+                    e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
+                    e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
+                    e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
+                    
+                    col_save, col_del = st.columns(2)
+                    if col_save.form_submit_button("Save Changes"):
+                        db.edit_global_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg, e_div)
+                        st.success("Updated!")
+                        st.rerun()
+                    if col_del.form_submit_button("Delete Horse"):
+                        db.delete_global_horse(h['id'])
+                        st.rerun()
+
+    # 3. ENTRIES (RACES)
+    with tabs[2]:
+        st.subheader("Assign Entries to Races")
         races = db.get_all_races()
         if not races:
             st.info("Please create a race first.")
@@ -176,42 +216,57 @@ def admin_page():
             race_options = {r['id']: f"[{r.get('group', 'Default')}] Race {r.get('order')}: {r.get('name')}" for r in races}
             selected_race_id = st.selectbox("Select Race", options=list(race_options.keys()), format_func=lambda x: race_options[x])
             
-            with st.form("add_horse_form"):
-                h_trainer = st.text_input("Trainer Name")
-                h_uma = st.text_input("Umamusume Name")
-                h_img = st.text_input("Horse Image URL")
-                h_timg = st.text_input("Trainer Image URL")
-                h_simg = st.text_input("Stats Image URL")
+            # Find selected race distance
+            sel_race = next((rt for rt in races if rt['id'] == selected_race_id), None)
+            req_div = "Unknown"
+            if sel_race:
+                import re
+                dist_str = sel_race.get('distance', '0')
+                dist_match = re.search(r'\d+', dist_str)
+                dist_val = int(dist_match.group()) if dist_match else 0
+                if dist_val < 1600:
+                    req_div = 'Sprint'
+                elif dist_val < 2000:
+                    req_div = 'Mile'
+                elif dist_val < 2500:
+                    req_div = 'Medium'
+                else:
+                    req_div = 'Long'
+                st.info(f"**Race Distance**: {dist_str} ➡️ **Required Division**: {req_div}")
+            
+            # Form to add entry
+            with st.form("add_race_entry_form"):
+                all_global_horses = db.get_all_global_horses()
+                # filter by required division
+                available_horses = [h for h in all_global_horses if h.get('division') == req_div]
                 
-                if st.form_submit_button("Add Entry"):
-                    if db.add_horse_to_race(selected_race_id, h_uma, h_trainer, h_img, h_timg, h_simg):
-                        st.success("Horse added successfully!")
-                    else:
-                        st.error("Failed to add. Check DB.")
+                if not available_horses:
+                    st.warning(f"No global horses found in the '{req_div}' division. Add them in the Horses roster tab.")
+                    submit_entry = st.form_submit_button("Assign Entry", disabled=True)
+                else:
+                    h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in available_horses}
+                    h_choose = st.selectbox("Select Horse", options=list(h_options.keys()), format_func=lambda x: h_options[x])
+                    if st.form_submit_button("Assign Entry"):
+                        if db.add_entry_to_race(selected_race_id, h_choose):
+                            st.success("Entry assigned!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to assign.")
             
             st.markdown("---")
-            st.subheader("Entries in Selected Race")
-            horses = db.get_horses_for_race(selected_race_id)
-            for h in horses:
-                with st.expander(f"{h.get('umamusume')} (Trainer: {h.get('trainer')})"):
-                    with st.form(f"edit_horse_{h['id']}"):
-                        e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
-                        e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
-                        e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
-                        e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
-                        e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
-                        
-                        col_save, col_del = st.columns(2)
-                        if col_save.form_submit_button("Save Changes"):
-                            db.edit_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg)
-                            st.success("Updated!")
-                            st.rerun()
-                        if col_del.form_submit_button("Delete Entry"):
-                            db.delete_horse(h['id'])
-                            st.rerun()
+            st.subheader("Current Entries in Race")
+            curr_entries = db.get_horses_for_race(selected_race_id)
+            if not curr_entries:
+                st.write("No entries yet.")
+            for h in curr_entries:
+                col1, col2 = st.columns([4,1])
+                col1.write(f"**{h.get('umamusume')}** (Trainer: {h.get('trainer')}) [{h.get('division')}]")
+                if col2.button("Remove Entry", key=f"rm_ent_{h['id']}_{selected_race_id}"):
+                    db.remove_entry_from_race(selected_race_id, h['id'])
+                    st.rerun()
 
-    # 3. OPERATIONS
-    with tabs[2]:
+    # 4. OPERATIONS
+    with tabs[3]:
         st.subheader("Race Locks & Results")
         races = db.get_all_races()
         from collections import defaultdict
@@ -264,8 +319,8 @@ def admin_page():
                                 st.success("Results cleared!")
                                 st.rerun()
 
-    # 4. POINTS CONFIG
-    with tabs[3]:
+    # 5. POINTS CONFIG
+    with tabs[4]:
         st.subheader("Points Settings")
         pts = db.get_points_config()
         
@@ -302,9 +357,9 @@ def admin_page():
                     st.success(f"Deleted {delete_place}")
                     st.rerun()
 
-    # 5. USERS (Admin Only)
-    if st.session_state.role == "admin" and len(tabs) > 4:
-        with tabs[4]:
+    # 6. USERS (Admin Only)
+    if st.session_state.role == "admin" and len(tabs) > 5:
+        with tabs[5]:
             st.subheader("User Management")
             users = db.get_all_users()
             for u in sorted(users, key=lambda x: x['role']):
@@ -327,7 +382,7 @@ def admin_page():
 
 
 def user_picks_page():
-    st.title("🎯 My Picks")
+    st.title("🎯 Pick'em")
     st.caption("Select one horse to win for each race. You may change your pick anytime until the Admin locks the race.")
     
     races = db.get_all_races()
@@ -525,8 +580,8 @@ def main():
             st.write(f"Hello, **{st.session_state.user}**!")
             st.markdown("---")
             
-            if st.button("🎯 My Picks", use_container_width=True):
-                st.session_state.page = "My Picks"
+            if st.button("🎯 Pick'em", use_container_width=True):
+                st.session_state.page = "Pick'em"
                 st.rerun()
             if st.button("🏆 Leaderboard", use_container_width=True):
                 st.session_state.page = "Leaderboard"
@@ -550,7 +605,7 @@ def main():
         login_page()
     elif p == "Admin":
         admin_page()
-    elif p == "My Picks":
+    elif p == "Pick'em":
         user_picks_page()
     elif p == "Leaderboard":
         leaderboard_page()

@@ -138,42 +138,87 @@ def clear_race_results(race_id):
     })
     return True
 
-# --- HORSES / ENTRIES ---
+# --- GLOBAL HORSES ---
+def get_all_global_horses():
+    db = get_db()
+    if not db: return []
+    docs = db.collection("global_horses").stream()
+    return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+
+def add_global_horse(umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url, division):
+    db = get_db()
+    if not db: return False
+    db.collection("global_horses").add({
+        "umamusume": umamusume,
+        "trainer": trainer,
+        "horse_img_url": horse_img_url,
+        "trainer_img_url": trainer_img_url,
+        "stats_img_url": stats_img_url,
+        "division": division
+    })
+    return True
+
+def delete_global_horse(horse_id):
+    db = get_db()
+    if not db: return False
+    db.collection("global_horses").document(horse_id).delete()
+    return True
+
+def edit_global_horse(horse_id, umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url, division):
+    db = get_db()
+    if not db: return False
+    db.collection("global_horses").document(horse_id).update({
+        "umamusume": umamusume,
+        "trainer": trainer,
+        "horse_img_url": horse_img_url,
+        "trainer_img_url": trainer_img_url,
+        "stats_img_url": stats_img_url,
+        "division": division
+    })
+    return True
+
+# --- RACE ENTRIES ---
 def get_horses_for_race(race_id):
     db = get_db()
     if not db: return []
-    docs = db.collection("horses").where("race_id", "==", race_id).stream()
-    return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+    
+    # 1. Fetch entry docs matching race_id
+    entry_docs = db.collection("race_entries").where("race_id", "==", race_id).stream()
+    entry_horse_ids = [doc.to_dict().get("horse_id") for doc in entry_docs]
+    
+    if not entry_horse_ids: 
+        return []
+        
+    # 2. Fetch all global horses
+    all_horses = get_all_global_horses()
+    
+    # 3. Filter and return
+    res = [h for h in all_horses if h['id'] in entry_horse_ids]
+    return res
 
-def add_horse_to_race(race_id, umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url):
+def add_entry_to_race(race_id, horse_id):
     db = get_db()
     if not db: return False
-    db.collection("horses").add({
+    
+    # Check if entry already exists to prevent dupes
+    existing = list(db.collection("race_entries")
+                    .where("race_id", "==", race_id)
+                    .where("horse_id", "==", horse_id)
+                    .stream())
+    if existing: return True # Already exists
+    
+    db.collection("race_entries").add({
         "race_id": race_id,
-        "umamusume": umamusume,
-        "trainer": trainer,
-        "horse_img_url": horse_img_url,
-        "trainer_img_url": trainer_img_url,
-        "stats_img_url": stats_img_url
+        "horse_id": horse_id
     })
     return True
 
-def delete_horse(horse_id):
+def remove_entry_from_race(race_id, horse_id):
     db = get_db()
     if not db: return False
-    db.collection("horses").document(horse_id).delete()
-    return True
-
-def edit_horse(horse_id, umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url):
-    db = get_db()
-    if not db: return False
-    db.collection("horses").document(horse_id).update({
-        "umamusume": umamusume,
-        "trainer": trainer,
-        "horse_img_url": horse_img_url,
-        "trainer_img_url": trainer_img_url,
-        "stats_img_url": stats_img_url
-    })
+    docs = db.collection("race_entries").where("race_id", "==", race_id).where("horse_id", "==", horse_id).stream()
+    for doc in docs:
+        doc.reference.delete()
     return True
 
 # --- PICKS ---
