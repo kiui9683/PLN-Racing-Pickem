@@ -532,7 +532,7 @@ def leaderboard_page():
                 continue
                 
             r_id = r['id']
-            race_name = r.get('name', 'Unknown Race')
+            race_name = f"[{r.get('group', 'Default')}] {r.get('name', 'Unknown Race')}"
             horses = db.get_horses_for_race(r_id)
             
             for pick in picks_list:
@@ -551,10 +551,12 @@ def leaderboard_page():
                             
                             winning_h = next((h for h in horses if h['id'] == winner_hid), None)
                             h_name = winning_h.get('umamusume', 'Unknown') if winning_h else 'Unknown'
+                            t_name = winning_h.get('trainer', 'Unknown Trainer') if winning_h else 'Unknown Trainer'
                             
                             user_breakdowns[p_uid].append({
                                 'race': race_name,
                                 'horse': h_name,
+                                'trainer': t_name,
                                 'place': place,
                                 'pts': pts
                             })
@@ -581,7 +583,7 @@ def leaderboard_page():
                         st.write("No points scored yet.")
                     else:
                         for bdoc in user_breakdowns[uname]:
-                            st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
+                            st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} (Tr: {bdoc['trainer']}) *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
                             st.markdown("---")
                 
     with tab_trainers:
@@ -596,7 +598,7 @@ def leaderboard_page():
             if not results:
                 continue
             r_id = r['id']
-            race_name = r.get('name', 'Unknown Race')
+            race_name = f"[{r.get('group', 'Default')}] {r.get('name', 'Unknown Race')}"
             horses = db.get_horses_for_race(r_id)
             for place, winner_hid in results.items():
                 winning_h = next((h for h in horses if h['id'] == winner_hid), None)
@@ -613,6 +615,7 @@ def leaderboard_page():
                     trainer_breakdowns[t_name].append({
                         'race': race_name,
                         'horse': h_name,
+                        'trainer': t_name,
                         'place': place,
                         'pts': pts
                     })
@@ -641,7 +644,7 @@ def leaderboard_page():
                             st.write("No points scored yet.")
                         else:
                             for bdoc in trainer_breakdowns[tname]:
-                                st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
+                                st.markdown(f"**{bdoc['race']}**<br/>{bdoc['horse']} (Tr: {bdoc['trainer']}) *({bdoc['place']})* ➡️ **+{bdoc['pts']}**", unsafe_allow_html=True)
                                 st.markdown("---")
             
     st.markdown("---")
