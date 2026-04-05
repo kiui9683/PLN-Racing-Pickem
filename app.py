@@ -202,22 +202,22 @@ def admin_page():
                 if selected_div_filter != "All Divisions" and h.get("division", "Sprint") != selected_div_filter:
                     continue
                 with st.expander(f"{h.get('umamusume')} ({h.get('division', 'Unknown')}) - Tr: {h.get('trainer')}"):
-                with st.form(f"edit_ghorse_{h['id']}"):
-                    e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
-                    e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
-                    e_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"], index=["Sprint", "Mile", "Medium", "Long"].index(h.get('division', 'Sprint')) if h.get('division') in ["Sprint", "Mile", "Medium", "Long"] else 0)
-                    e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
-                    e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
-                    e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
-                    
-                    col_save, col_del = st.columns(2)
-                    if col_save.form_submit_button("Save Changes"):
-                        db.edit_global_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg, e_div)
-                        st.success("Updated!")
-                        st.rerun()
-                    if col_del.form_submit_button("Delete Horse"):
-                        db.delete_global_horse(h['id'])
-                        st.rerun()
+                    with st.form(f"edit_ghorse_{h['id']}"):
+                        e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
+                        e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
+                        e_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"], index=["Sprint", "Mile", "Medium", "Long"].index(h.get('division', 'Sprint')) if h.get('division') in ["Sprint", "Mile", "Medium", "Long"] else 0)
+                        e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
+                        e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
+                        e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
+                        
+                        col_save, col_del = st.columns(2)
+                        if col_save.form_submit_button("Save Changes"):
+                            db.edit_global_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg, e_div)
+                            st.success("Updated!")
+                            st.rerun()
+                        if col_del.form_submit_button("Delete Horse"):
+                            db.delete_global_horse(h['id'])
+                            st.rerun()
 
     # 3. ENTRIES (RACES)
     with tabs[2]:
@@ -299,47 +299,47 @@ def admin_page():
             for g_name, r_list in grp_races.items():
                 st.markdown(f"#### {g_name}")
                 for r in r_list:
-                with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
-                    # Lock status
-                    is_locked = r.get('locked', False)
-                    lock_text = "Unlock Race" if is_locked else "Lock Race 🔒"
-                    if st.button(lock_text, key=f"lock_{r['id']}"):
-                        db.toggle_race_lock(r['id'], not is_locked)
-                        st.rerun()
-                    
-                    st.markdown("---")
-                    st.markdown("**Enter Results**")
-                    horses = db.get_horses_for_race(r['id'])
-                    if horses:
-                        h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
-                        h_options[""] = "--- Select ---"
-                        pts_cfg = db.get_points_config()
+                    with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
+                        # Lock status
+                        is_locked = r.get('locked', False)
+                        lock_text = "Unlock Race" if is_locked else "Lock Race 🔒"
+                        if st.button(lock_text, key=f"lock_{r['id']}"):
+                            db.toggle_race_lock(r['id'], not is_locked)
+                            st.rerun()
                         
-                        form_key = f"results_form_{r['id']}"
-                        with st.form(form_key):
-                            res_inputs = {}
-                            sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
-                            max_places = min(len(horses), len(sorted_placements))
-                            for place in sorted_placements[:max_places]:
-                                res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
+                        st.markdown("---")
+                        st.markdown("**Enter Results**")
+                        horses = db.get_horses_for_race(r['id'])
+                        if horses:
+                            h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
+                            h_options[""] = "--- Select ---"
+                            pts_cfg = db.get_points_config()
                             
-                            col_s, col_c = st.columns(2)
-                            if col_s.form_submit_button("Save Results"):
-                                res_dict = {place: hid for place, hid in res_inputs.items() if hid}
+                            form_key = f"results_form_{r['id']}"
+                            with st.form(form_key):
+                                res_inputs = {}
+                                sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
+                                max_places = min(len(horses), len(sorted_placements))
+                                for place in sorted_placements[:max_places]:
+                                    res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
                                 
-                                # Validate duplicates
-                                values = list(res_dict.values())
-                                if len(values) != len(set(values)):
-                                    st.error("Validation Error: A horse cannot be assigned to multiple placements.")
-                                else:
-                                    db.set_race_results(r['id'], res_dict)
-                                    st.success("Results updated!")
-                                    st.rerun()
+                                col_s, col_c = st.columns(2)
+                                if col_s.form_submit_button("Save Results"):
+                                    res_dict = {place: hid for place, hid in res_inputs.items() if hid}
                                     
-                            if col_c.form_submit_button("Clear Results"):
-                                db.clear_race_results(r['id'])
-                                st.success("Results cleared!")
-                                st.rerun()
+                                    # Validate duplicates
+                                    values = list(res_dict.values())
+                                    if len(values) != len(set(values)):
+                                        st.error("Validation Error: A horse cannot be assigned to multiple placements.")
+                                    else:
+                                        db.set_race_results(r['id'], res_dict)
+                                        st.success("Results updated!")
+                                        st.rerun()
+                                        
+                                if col_c.form_submit_button("Clear Results"):
+                                    db.clear_race_results(r['id'])
+                                    st.success("Results cleared!")
+                                    st.rerun()
 
     # 5. POINTS CONFIG
     with tabs[4]:
