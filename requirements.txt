@@ -2,4 +2,3 @@ streamlit
 firebase-admin
 pandas
 bcrypt
-extra-streamlit-components

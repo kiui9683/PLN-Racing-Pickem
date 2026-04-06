@@ -1,64 +1,26 @@
 import streamlit as st
-import extra_streamlit_components as stx
 import firebase_db as db
 from PIL import Image
 import requests
 from io import BytesIO
 import pandas as pd
-from datetime import datetime, timedelta, timezone
 
 st.set_page_config(page_title="PLN Racing Festival Pick'em", page_icon="🏇", layout="wide")
 
-# Initialize Cookie Manager
-cookie_manager = stx.CookieManager(key="pln_cookie_manager")
-
-# --- UTILS ---
-@st.cache_data(ttl=3600)
-def load_image_from_url(url, width=None):
-    if not url or pd.isna(url):
-        return None
-    try:
-        response = requests.get(url, timeout=5)
-        img = Image.open(BytesIO(response.content))
-        if width:
-            ratio = width / img.width
-            height = int(img.height * ratio)
-            img = img.resize((width, height))
-        return img
-    except Exception:
-        return None
-
-# --- SESSION STATE ---
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'role' not in st.session_state:
-    st.session_state.role = None
-if 'page' not in st.session_state:
-    st.session_state.page = "Login"
-if 'cookies_synced' not in st.session_state:
-    st.session_state.cookies_synced = False
-
-# --- PERSISTENT SESSION ---
-def check_persistent_session(cookies):
-    if st.session_state.user is None and cookies:
-        token = cookies.get("pln_race_session_token")
-        if token:
-            user_data = db.get_user_by_session(token)
-            if user_data:
-                st.session_state.user = user_data.get("username")
-                st.session_state.role = user_data.get("role", "user")
-                if st.session_state.page == "Login":
-                    st.session_state.page = "Pick'em"
-                return True
-    return False
-
-
-# CSS Injection
+# PREMIUM CUSTOM CSS
 st.markdown("""
 <style>
-    .stApp { background-color: #0e1117; }
-    h1, h2, h3 { font-family: 'Inter', sans-serif; color: #FBBF24; }
-    hr { border-color: rgba(255, 255, 255, 0.1); }
+    /* Base aesthetic adjustments */
+    .stApp {
+        background-color: #0e1117;
+    }
+    h1, h2, h3 {
+        font-family: 'Inter', sans-serif;
+        color: #FBBF24; /* Solid premium gold to preserve native emoji colors */
+    }
+    hr {
+        border-color: rgba(255, 255, 255, 0.1);
+    }
     .stButton>button {
         background-color: #1f2937 !important;
         color: #fff !important;
@@ -70,9 +32,35 @@ st.markdown("""
         border-color: #FFA500 !important;
         box-shadow: 0 0 10px rgba(255, 165, 0, 0.5) !important;
     }
-    .locked-race { color: #fca5a5; font-weight: bold; }
+    .locked-race {
+        color: #fca5a5;
+        font-weight: bold;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+@st.cache_data(ttl=3600)
+def load_image_from_url(url, width=None):
+    if not url or pd.isna(url):
+        return Image.new('RGB', (100, 100), color=(30, 34, 43))
+    try:
+        response = requests.get(url, timeout=5)
+        img = Image.open(BytesIO(response.content))
+        if width:
+            ratio = width / img.width
+            height = int(img.height * ratio)
+            img = img.resize((width, height))
+        return img
+    except Exception:
+        return Image.new('RGB', (100, 100), color=(30, 34, 43))
+
+# --- SESSION STATE ---
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'role' not in st.session_state:
+    st.session_state.role = None
+if 'page' not in st.session_state:
+    st.session_state.page = "Login" if not st.session_state.user else "Pick'em"
 
 # --- PAGES ---
 def login_page():
@@ -87,17 +75,13 @@ def login_page():
             with st.form("login_form"):
                 l_username = st.text_input("Username", key="l_user")
                 l_password = st.text_input("Password", type="password", key="l_pass")
-                if st.form_submit_button("Login", width="stretch"):
+                if st.form_submit_button("Login", use_container_width=True):
                     if l_username and l_password:
                         with st.spinner("Authenticating..."):
                             success, user_data = db.authenticate_user(l_username, l_password)
                             if success:
                                 st.session_state.user = l_username
                                 st.session_state.role = user_data.get("role", "user")
-                                # Create persistent session
-                                token = db.create_session(l_username)
-                                if token:
-                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.now(timezone.utc) + timedelta(days=30))
                                 st.session_state.page = "Pick'em"
                                 st.rerun()
                             else:
@@ -107,17 +91,13 @@ def login_page():
             with st.form("signup_form"):
                 s_username = st.text_input("Choose Username", key="s_user")
                 s_password = st.text_input("Choose Password", type="password", key="s_pass")
-                if st.form_submit_button("Create Account", width="stretch"):
+                if st.form_submit_button("Create Account", use_container_width=True):
                     if s_username and s_password:
                         with st.spinner("Creating account..."):
                             success, msg = db.create_user(s_username, s_password, "user")
                             if success:
                                 st.session_state.user = s_username
                                 st.session_state.role = "user"
-                                # Create persistent session
-                                token = db.create_session(s_username)
-                                if token:
-                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.now(timezone.utc) + timedelta(days=30))
                                 st.session_state.page = "Pick'em"
                                 st.success("Account created! Logging in...")
                                 st.rerun()
@@ -200,7 +180,7 @@ def admin_page():
             h_trainer = st.text_input("Trainer Name")
             h_uma = st.text_input("Umamusume Name")
             h_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"])
-            h_img = st.text_input("Umamusume Image URL")
+            h_img = st.text_input("Horse Image URL")
             h_timg = st.text_input("Trainer Image URL")
             h_simg = st.text_input("Stats Image URL")
             
@@ -226,7 +206,7 @@ def admin_page():
                         e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
                         e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
                         e_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"], index=["Sprint", "Mile", "Medium", "Long"].index(h.get('division', 'Sprint')) if h.get('division') in ["Sprint", "Mile", "Medium", "Long"] else 0)
-                        e_img = st.text_input("Umamusume Image URL", value=h.get('horse_img_url', ''))
+                        e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
                         e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
                         e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
                         
@@ -473,7 +453,7 @@ def user_picks_page():
                 else:
                     st.warning("You have not made a pick for this race.")
                     
-                st.markdown("#### Field")
+                st.markdown("#### The Field")
                 for h in horses:
                     with st.container():
                         col_himg, col_timg, col_name, col_stats, col_btn = st.columns([1, 1, 3, 1, 2])
@@ -501,12 +481,9 @@ def user_picks_page():
                                 with st.popover("Stats"):
                                     try:
                                         simg = load_image_from_url(h.get('stats_img_url'), width=300)
-                                        if simg:
-                                            st.image(simg, width="stretch")
-                                        else:
-                                            st.write("No stats available.")
+                                        st.image(simg, use_container_width=True)
                                     except:
-                                        st.write("Error loading stats.")
+                                        st.write("No stats available.")
                         with col_btn:
                             if not is_locked:
                                 btn_label = "✅ Selected" if h['id'] == current_pick_id else "Select"
@@ -684,25 +661,21 @@ def main():
             st.write(f"Hello, **{st.session_state.user}**!")
             st.markdown("---")
             
-            if st.button("🎯 Pick'em", width='stretch'):
+            if st.button("🎯 Pick'em", use_container_width=True):
                 st.session_state.page = "Pick'em"
                 st.rerun()
-            if st.button("🏆 Leaderboard", width='stretch'):
+            if st.button("🏆 Leaderboard", use_container_width=True):
                 st.session_state.page = "Leaderboard"
                 st.rerun()
                 
             if st.session_state.role in ["admin", "manager"]:
                 st.markdown("---")
-                if st.button("🛠️ Management Panel", width='stretch'):
+                if st.button("🛠️ Management Panel", use_container_width=True):
                     st.session_state.page = "Admin"
                     st.rerun()
                     
             st.markdown("---")
-            if st.button("🚪 Logout", width='stretch'):
-                token = cookie_manager.get("pln_race_session_token")
-                if token:
-                    db.delete_session(token)
-                    cookie_manager.delete("pln_race_session_token")
+            if st.button("🚪 Logout", use_container_width=True):
                 st.session_state.user = None
                 st.session_state.role = None
                 st.session_state.page = "Login"
@@ -719,18 +692,4 @@ def main():
         leaderboard_page()
 
 if __name__ == "__main__":
-    # Poll for cookies
-    cookies = cookie_manager.get_all()
-    
-    # Robust Handshake: Wait for the component to provide data
-    if cookies is None and not st.session_state.cookies_synced:
-        st.markdown("<div style='text-align: center; margin-top: 100px;'>⌛ Syncing session with browser...</div>", unsafe_allow_html=True)
-        st.stop()
-    
-    # Once we have cookies (or confirmed they are empty)
-    if not st.session_state.cookies_synced:
-        st.session_state.cookies_synced = True
-        if check_persistent_session(cookies):
-            st.rerun()
-            
     main()
