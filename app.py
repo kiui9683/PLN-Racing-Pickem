@@ -5,11 +5,16 @@ from PIL import Image
 import requests
 from io import BytesIO
 import pandas as pd
+from datetime import datetime, timedelta, timezone
 
 st.set_page_config(page_title="PLN Racing Festival Pick'em", page_icon="🏇", layout="wide")
 
 # Initialize Cookie Manager
-cookie_manager = stx.CookieManager()
+@st.cache_resource(hash_funcs={"_thread.RLock": lambda _: None})
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 # --- UTILS ---
 @st.cache_data(ttl=3600)
@@ -93,7 +98,7 @@ def login_page():
                                 # Create persistent session
                                 token = db.create_session(l_username)
                                 if token:
-                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.utcnow() + timedelta(days=30))
+                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.now(timezone.utc) + timedelta(days=30))
                                 st.session_state.page = "Pick'em"
                                 st.rerun()
                             else:
@@ -113,7 +118,7 @@ def login_page():
                                 # Create persistent session
                                 token = db.create_session(s_username)
                                 if token:
-                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.utcnow() + timedelta(days=30))
+                                    cookie_manager.set("pln_race_session_token", token, expires_at=datetime.now(timezone.utc) + timedelta(days=30))
                                 st.session_state.page = "Pick'em"
                                 st.success("Account created! Logging in...")
                                 st.rerun()
@@ -715,6 +720,11 @@ def main():
         leaderboard_page()
 
 if __name__ == "__main__":
-    from datetime import datetime, timedelta
-    check_persistent_session()
-    main()
+    # Wait for cookies to load (async component)
+    cookies = cookie_manager.get_all()
+    if cookies is None:
+        # Show a minimal loading state while cookies are being fetched
+        st.markdown("<div style='text-align: center; margin-top: 50px;'>⌛ Syncing session...</div>", unsafe_allow_html=True)
+    else:
+        check_persistent_session()
+        main()

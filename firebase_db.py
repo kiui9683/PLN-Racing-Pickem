@@ -1,9 +1,10 @@
 import firebase_admin
 from firebase_admin import credentials, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 import streamlit as st
 import bcrypt
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 @st.cache_resource
 def get_db():
@@ -185,7 +186,7 @@ def get_horses_for_race(race_id):
     if not db: return []
     
     # 1. Fetch entry docs matching race_id
-    entry_docs = db.collection("race_entries").where("race_id", "==", race_id).stream()
+    entry_docs = db.collection("race_entries").where(filter=FieldFilter("race_id", "==", race_id)).stream()
     entry_horse_ids = [doc.to_dict().get("horse_id") for doc in entry_docs]
     
     if not entry_horse_ids: 
@@ -204,8 +205,8 @@ def add_entry_to_race(race_id, horse_id):
     
     # Check if entry already exists to prevent dupes
     existing = list(db.collection("race_entries")
-                    .where("race_id", "==", race_id)
-                    .where("horse_id", "==", horse_id)
+                    .where(filter=FieldFilter("race_id", "==", race_id))
+                    .where(filter=FieldFilter("horse_id", "==", horse_id))
                     .stream())
     if existing: return True # Already exists
     
@@ -218,7 +219,7 @@ def add_entry_to_race(race_id, horse_id):
 def remove_entry_from_race(race_id, horse_id):
     db = get_db()
     if not db: return False
-    docs = db.collection("race_entries").where("race_id", "==", race_id).where("horse_id", "==", horse_id).stream()
+    docs = db.collection("race_entries").where(filter=FieldFilter("race_id", "==", race_id)).where(filter=FieldFilter("horse_id", "==", horse_id)).stream()
     for doc in docs:
         doc.reference.delete()
     return True
@@ -227,7 +228,7 @@ def remove_entry_from_race(race_id, horse_id):
 def get_user_picks(username):
     db = get_db()
     if not db: return {}
-    docs = db.collection("picks").where("username", "==", username).stream()
+    docs = db.collection("picks").where(filter=FieldFilter("username", "==", username)).stream()
     return {doc.to_dict()["race_id"]: doc.to_dict()["horse_id"] for doc in docs}
 
 def make_pick(username, race_id, horse_id):
@@ -276,7 +277,7 @@ def create_session(username):
     
     session_token = str(uuid.uuid4())
     # Expire in 30 days
-    expiry = datetime.utcnow() + timedelta(days=30)
+    expiry = datetime.now(timezone.utc) + timedelta(days=30)
     
     db.collection("sessions").document(session_token).set({
         "username": username,
@@ -297,7 +298,7 @@ def get_user_by_session(session_token):
     data = doc.to_dict()
     # Check expiry
     expires_at = data.get("expires_at")
-    if expires_at and expires_at.replace(tzinfo=None) < datetime.utcnow():
+    if expires_at and expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
         doc_ref.delete()
         return None
         
