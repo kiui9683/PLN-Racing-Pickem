@@ -10,11 +10,7 @@ from datetime import datetime, timedelta, timezone
 st.set_page_config(page_title="PLN Racing Festival Pick'em", page_icon="🏇", layout="wide")
 
 # Initialize Cookie Manager
-@st.cache_resource(hash_funcs={"_thread.RLock": lambda _: None})
-def get_cookie_manager():
-    return stx.CookieManager()
-
-cookie_manager = get_cookie_manager()
+cookie_manager = stx.CookieManager()
 
 # --- UTILS ---
 @st.cache_data(ttl=3600)
