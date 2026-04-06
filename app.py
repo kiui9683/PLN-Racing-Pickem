@@ -35,6 +35,8 @@ if 'role' not in st.session_state:
     st.session_state.role = None
 if 'page' not in st.session_state:
     st.session_state.page = "Login"
+if 'cookies_synced' not in st.session_state:
+    st.session_state.cookies_synced = False
 
 # --- PERSISTENT SESSION ---
 def check_persistent_session(cookies):
@@ -49,6 +51,7 @@ def check_persistent_session(cookies):
                     st.session_state.page = "Pick'em"
                 return True
     return False
+
 
 # CSS Injection
 st.markdown("""
@@ -716,16 +719,18 @@ def main():
         leaderboard_page()
 
 if __name__ == "__main__":
-    # Wait for cookies to load (async component)
-    all_cookies = cookie_manager.get_all()
+    # Poll for cookies
+    cookies = cookie_manager.get_all()
     
-    if all_cookies is None:
-        # Show a minimal loading state while cookies are being fetched
-        st.markdown("<div style='text-align: center; margin-top: 50px;'>⌛ Syncing session...</div>", unsafe_allow_html=True)
-    else:
-        # Check and restore session if needed
-        # We only rerun if the session was successfully restored for the first time
-        if check_persistent_session(all_cookies):
+    # Robust Handshake: Wait for the component to provide data
+    if cookies is None and not st.session_state.cookies_synced:
+        st.markdown("<div style='text-align: center; margin-top: 100px;'>⌛ Syncing session with browser...</div>", unsafe_allow_html=True)
+        st.stop()
+    
+    # Once we have cookies (or confirmed they are empty)
+    if not st.session_state.cookies_synced:
+        st.session_state.cookies_synced = True
+        if check_persistent_session(cookies):
             st.rerun()
             
-        main()
+    main()
