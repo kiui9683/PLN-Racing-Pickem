@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 st.set_page_config(page_title="PLN Racing Festival Pick'em", page_icon="🏇", layout="wide")
 
 # Initialize Cookie Manager
-cookie_manager = stx.CookieManager()
+cookie_manager = stx.CookieManager(key="pln_cookie_manager")
 
 # --- UTILS ---
 @st.cache_data(ttl=3600)
@@ -37,9 +37,9 @@ if 'page' not in st.session_state:
     st.session_state.page = "Login"
 
 # --- PERSISTENT SESSION ---
-def check_persistent_session():
-    if st.session_state.user is None:
-        token = cookie_manager.get("pln_race_session_token")
+def check_persistent_session(cookies):
+    if st.session_state.user is None and cookies:
+        token = cookies.get("pln_race_session_token")
         if token:
             user_data = db.get_user_by_session(token)
             if user_data:
@@ -717,10 +717,15 @@ def main():
 
 if __name__ == "__main__":
     # Wait for cookies to load (async component)
-    cookies = cookie_manager.get_all()
-    if cookies is None:
+    all_cookies = cookie_manager.get_all()
+    
+    if all_cookies is None:
         # Show a minimal loading state while cookies are being fetched
         st.markdown("<div style='text-align: center; margin-top: 50px;'>⌛ Syncing session...</div>", unsafe_allow_html=True)
     else:
-        check_persistent_session()
+        # Check and restore session if needed
+        # We only rerun if the session was successfully restored for the first time
+        if check_persistent_session(all_cookies):
+            st.rerun()
+            
         main()
