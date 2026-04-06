@@ -2,6 +2,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import streamlit as st
 import bcrypt
+import uuid
+from datetime import datetime, timedelta
 
 @st.cache_resource
 def get_db():
@@ -266,3 +268,47 @@ def get_all_users():
     if not db: return []
     docs = db.collection("users").stream()
     return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+
+# --- SESSION MANAGEMENT ---
+def create_session(username):
+    db = get_db()
+    if not db: return None
+    
+    session_token = str(uuid.uuid4())
+    # Expire in 30 days
+    expiry = datetime.utcnow() + timedelta(days=30)
+    
+    db.collection("sessions").document(session_token).set({
+        "username": username,
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "expires_at": expiry
+    })
+    return session_token
+
+def get_user_by_session(session_token):
+    db = get_db()
+    if not db: return None
+    
+    doc_ref = db.collection("sessions").document(session_token)
+    doc = doc_ref.get()
+    if not doc.exists:
+        return None
+        
+    data = doc.to_dict()
+    # Check expiry
+    expires_at = data.get("expires_at")
+    if expires_at and expires_at.replace(tzinfo=None) < datetime.utcnow():
+        doc_ref.delete()
+        return None
+        
+    username = data.get("username")
+    user_doc = db.collection("users").document(username).get()
+    if user_doc.exists:
+        return user_doc.to_dict()
+    return None
+
+def delete_session(session_token):
+    db = get_db()
+    if not db: return False
+    db.collection("sessions").document(session_token).delete()
+    return True
