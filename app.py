@@ -1,3 +1,4 @@
+import streamlit as st
 import extra_streamlit_components as stx
 import firebase_db as db
 from PIL import Image
