@@ -114,7 +114,7 @@ def admin_page():
     st.title("🛠️ Management Panel")
     st.caption("Manage the entire Pick'em site from here.")
     
-    tabs_list = ["Races", "Horses (Roster)", "Entries (Races)", "Operations", "Points Config"]
+    tabs_list = ["Races", "Trainers (Roster)", "Entries (Races)", "Operations", "Points Config"]
     if st.session_state.role == "admin":
         tabs_list.append("Users")
     
@@ -172,56 +172,81 @@ def admin_page():
                             db.delete_race(r['id'])
                             st.rerun()
 
-    # 2. HORSES (ROSTER)
+    # 2. TRAINERS (ROSTER)
     with tabs[1]:
-        st.subheader("Global Horse Roster")
-        st.write("Add and edit horses in the global pool.")
-        with st.form("add_global_horse_form"):
-            h_trainer = st.text_input("Trainer Name")
-            h_uma = st.text_input("Umamusume Name")
-            h_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"])
-            h_img = st.text_input("Horse Image URL")
-            h_timg = st.text_input("Trainer Image URL")
-            h_simg = st.text_input("Stats Image URL")
+        st.subheader("Trainer Roster")
+        st.write("Add and edit trainers with their horse rosters (2 per division).")
+        
+        with st.form("add_trainer_form"):
+            t_name = st.text_input("Trainer Name")
+            t_img = st.text_input("Trainer Image URL")
             
-            if st.form_submit_button("Add Horse"):
-                if db.add_global_horse(h_uma, h_trainer, h_img, h_timg, h_simg, h_div):
-                    st.success("Horse added to roster!")
+            st.markdown("#### Horse Roster (2 per division)")
+            divisions = ["Sprint", "Mile", "Medium", "Long"]
+            t_horses = {}
+            
+            for div in divisions:
+                st.markdown(f"**{div} Division**")
+                colA, colB = st.columns(2)
+                h_list = []
+                for i in range(2):
+                    with (colA if i == 0 else colB):
+                        st.write(f"Horse {i+1}")
+                        hn = st.text_input(f"Name", key=f"add_{div}_{i}_name")
+                        hi = st.text_input(f"Image URL", key=f"add_{div}_{i}_img")
+                        hs = st.text_input(f"Stats URL", key=f"add_{div}_{i}_stats")
+                        h_list.append({"name": hn, "img": hi, "stats": hs})
+                t_horses[div] = h_list
+            
+            if st.form_submit_button("Add Trainer"):
+                if t_name:
+                    if db.add_trainer(t_name, t_img, t_horses):
+                        st.success("Trainer added!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to add.")
                 else:
-                    st.error("Failed to add.")
+                    st.warning("Trainer name is required.")
         
         st.markdown("---")
-        st.subheader("Existing Roster")
-        all_horses = db.get_all_global_horses()
-        if all_horses:
-            unique_divs = ["Sprint", "Mile", "Medium", "Long"]
-            filter_options_div = ["All Divisions"] + unique_divs
-            selected_div_filter = st.selectbox("Filter by Division:", options=filter_options_div, key="filter_horses")
-
-            for h in all_horses:
-                if selected_div_filter != "All Divisions" and h.get("division", "Sprint") != selected_div_filter:
-                    continue
-                with st.expander(f"{h.get('umamusume')} ({h.get('division', 'Unknown')}) - Tr: {h.get('trainer')}"):
-                    with st.form(f"edit_ghorse_{h['id']}"):
-                        e_trainer = st.text_input("Trainer Name", value=h.get('trainer', ''))
-                        e_uma = st.text_input("Umamusume Name", value=h.get('umamusume', ''))
-                        e_div = st.selectbox("Division", ["Sprint", "Mile", "Medium", "Long"], index=["Sprint", "Mile", "Medium", "Long"].index(h.get('division', 'Sprint')) if h.get('division') in ["Sprint", "Mile", "Medium", "Long"] else 0)
-                        e_img = st.text_input("Horse Image URL", value=h.get('horse_img_url', ''))
-                        e_timg = st.text_input("Trainer Image URL", value=h.get('trainer_img_url', ''))
-                        e_simg = st.text_input("Stats Image URL", value=h.get('stats_img_url', ''))
+        st.subheader("Existing Trainers")
+        all_trainers = db.get_all_trainers()
+        for t in all_trainers:
+            with st.expander(f"Tr: {t.get('name')}"):
+                with st.form(f"edit_trainer_{t['id']}"):
+                    e_name = st.text_input("Trainer Name", value=t.get('name'))
+                    e_img = st.text_input("Trainer Image", value=t.get('img_url'))
+                    
+                    e_horses = {}
+                    for div in ["Sprint", "Mile", "Medium", "Long"]:
+                        st.markdown(f"**{div} Division**")
+                        colA, colB = st.columns(2)
+                        h_list = t.get("horses", {}).get(div, [{"name":"", "img":"", "stats":""}, {"name":"", "img":"", "stats":""}])
+                        # Ensure we have 2
+                        while len(h_list) < 2: h_list.append({"name":"", "img":"", "stats":""})
                         
-                        col_save, col_del = st.columns(2)
-                        if col_save.form_submit_button("Save Changes"):
-                            db.edit_global_horse(h['id'], e_uma, e_trainer, e_img, e_timg, e_simg, e_div)
-                            st.success("Updated!")
-                            st.rerun()
-                        if col_del.form_submit_button("Delete Horse"):
-                            db.delete_global_horse(h['id'])
-                            st.rerun()
+                        new_h_list = []
+                        for i in range(2):
+                            with (colA if i == 0 else colB):
+                                st.write(f"Horse {i+1}")
+                                hn = st.text_input(f"Name", value=h_list[i].get("name", ""), key=f"edit_{t['id']}_{div}_{i}_name")
+                                hi = st.text_input(f"Image", value=h_list[i].get("img", ""), key=f"edit_{t['id']}_{div}_{i}_img")
+                                hs = st.text_input(f"Stats", value=h_list[i].get("stats", ""), key=f"edit_{t['id']}_{div}_{i}_stats")
+                                new_h_list.append({"name": hn, "img": hi, "stats": hs})
+                        e_horses[div] = new_h_list
+                        
+                    col_save, col_del = st.columns(2)
+                    if col_save.form_submit_button("Save Changes"):
+                        db.edit_trainer(t['id'], e_name, e_img, e_horses)
+                        st.success("Updated!")
+                        st.rerun()
+                    if col_del.form_submit_button("Delete Trainer"):
+                        db.delete_trainer(t['id'])
+                        st.rerun()
 
     # 3. ENTRIES (RACES)
     with tabs[2]:
-        st.subheader("Assign Entries to Races")
+        st.subheader("Assign Trainer Entries to Races")
         races = db.get_all_races()
         if not races:
             st.info("Please create a race first.")
@@ -229,7 +254,6 @@ def admin_page():
             race_options = {r['id']: f"[{r.get('group', 'Default')}] Race {r.get('order')}: {r.get('name')}" for r in races}
             selected_race_id = st.selectbox("Select Race", options=list(race_options.keys()), format_func=lambda x: race_options[x])
             
-            # Find selected race distance
             sel_race = next((rt for rt in races if rt['id'] == selected_race_id), None)
             req_div = "Unknown"
             if sel_race:
@@ -237,47 +261,48 @@ def admin_page():
                 dist_str = sel_race.get('distance', '0')
                 dist_match = re.search(r'\d+', dist_str)
                 dist_val = int(dist_match.group()) if dist_match else 0
-                if dist_val < 1600:
-                    req_div = 'Sprint'
-                elif dist_val < 2000:
-                    req_div = 'Mile'
-                elif dist_val < 2500:
-                    req_div = 'Medium'
-                else:
-                    req_div = 'Long'
+                if dist_val < 1600: req_div = 'Sprint'
+                elif dist_val < 2000: req_div = 'Mile'
+                elif dist_val < 2500: req_div = 'Medium'
+                else: req_div = 'Long'
                 st.info(f"**Race Distance**: {dist_str} ➡️ **Required Division**: {req_div}")
             
-            curr_entries = db.get_horses_for_race(selected_race_id)
-            current_entry_ids = [h['id'] for h in curr_entries]
+            curr_entries = db.get_entries_for_race(selected_race_id)
+            current_trainer_ids = [e['trainer_id'] for e in curr_entries]
             
-            # Form to add entry
             with st.form("add_race_entry_form"):
-                all_global_horses = db.get_all_global_horses()
-                # filter by required division and exclude already entered
-                available_horses = [h for h in all_global_horses if h.get('division') == req_div and h['id'] not in current_entry_ids]
+                all_trainers = db.get_all_trainers()
+                available_trainers = [t for t in all_trainers if t['id'] not in current_trainer_ids]
                 
-                if not available_horses:
-                    st.warning(f"No further global horses from the '{req_div}' division are available.")
-                    submit_entry = st.form_submit_button("Assign Entry", disabled=True)
+                if not available_trainers:
+                    st.warning("No more trainers available to add.")
+                    st.form_submit_button("Assign Trainer", disabled=True)
                 else:
-                    h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in available_horses}
-                    h_choose = st.selectbox("Select Horse", options=list(h_options.keys()), format_func=lambda x: h_options[x])
-                    if st.form_submit_button("Assign Entry"):
-                        if db.add_entry_to_race(selected_race_id, h_choose):
-                            st.success("Entry assigned!")
+                    t_options = {t['id']: t.get('name') for t in available_trainers}
+                    t_choose = st.selectbox("Select Trainer", options=list(t_options.keys()), format_func=lambda x: t_options[x])
+                    
+                    # Horse selection for that trainer and division
+                    st.markdown(f"**Select Horse from {req_div} Roster**")
+                    trainer_obj = next(to for to in available_trainers if to['id'] == t_choose)
+                    h_roster = trainer_obj.get("horses", {}).get(req_div, [])
+                    while len(h_roster) < 2: h_roster.append({"name": f"Unknown {len(h_roster)+1}"})
+                    
+                    h_choice = st.radio("Choose Horse", options=[0, 1], format_func=lambda i: h_roster[i].get("name", f"Horse {i+1}"))
+                    
+                    if st.form_submit_button("Assign Trainer & Horse"):
+                        if db.add_entry_to_race(selected_race_id, t_choose, h_choice, req_div):
+                            st.success("Trainer entered!")
                             st.rerun()
-                        else:
-                            st.error("Failed to assign.")
             
             st.markdown("---")
             st.subheader("Current Entries in Race")
             if not curr_entries:
                 st.write("No entries yet.")
-            for h in curr_entries:
+            for ent in curr_entries:
                 col1, col2 = st.columns([4,1])
-                col1.write(f"**{h.get('umamusume')}** (Trainer: {h.get('trainer')}) [{h.get('division')}]")
-                if col2.button("Remove Entry", key=f"rm_ent_{h['id']}_{selected_race_id}"):
-                    db.remove_entry_from_race(selected_race_id, h['id'])
+                col1.write(f"**{ent.get('umamusume')}** (Trainer: {ent.get('trainer_name')})")
+                if col2.button("Remove Entry", key=f"rm_ent_{ent['trainer_id']}_{selected_race_id}"):
+                    db.remove_entry_from_race(selected_race_id, ent['trainer_id'])
                     st.rerun()
 
     # 4. OPERATIONS
@@ -309,9 +334,9 @@ def admin_page():
                         
                         st.markdown("---")
                         st.markdown("**Enter Results**")
-                        horses = db.get_horses_for_race(r['id'])
-                        if horses:
-                            h_options = {h['id']: f"{h.get('umamusume')} ({h.get('trainer')})" for h in horses}
+                        entries = db.get_entries_for_race(r['id'])
+                        if entries:
+                            h_options = {e['trainer_id']: f"{e.get('umamusume')} ({e.get('trainer_name')})" for e in entries}
                             h_options[""] = "--- Select ---"
                             pts_cfg = db.get_points_config()
                             
@@ -319,18 +344,18 @@ def admin_page():
                             with st.form(form_key):
                                 res_inputs = {}
                                 sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
-                                max_places = min(len(horses), len(sorted_placements))
+                                max_places = min(len(entries), len(sorted_placements))
                                 for place in sorted_placements[:max_places]:
                                     res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
                                 
                                 col_s, col_c = st.columns(2)
                                 if col_s.form_submit_button("Save Results"):
-                                    res_dict = {place: hid for place, hid in res_inputs.items() if hid}
+                                    res_dict = {place: tid for place, tid in res_inputs.items() if tid}
                                     
                                     # Validate duplicates
                                     values = list(res_dict.values())
                                     if len(values) != len(set(values)):
-                                        st.error("Validation Error: A horse cannot be assigned to multiple placements.")
+                                        st.error("Validation Error: A trainer cannot be assigned to multiple placements.")
                                     else:
                                         db.set_race_results(r['id'], res_dict)
                                         st.success("Results updated!")
@@ -405,7 +430,7 @@ def admin_page():
 
 def user_picks_page():
     st.title("🎯 Pick'em")
-    st.caption("Select one horse to win for each race. You may change your pick anytime until the Admin locks the race.")
+    st.caption("Select one trainer/horse to win for each race. You may change your pick anytime until the Admin locks the race.")
     
     races = db.get_all_races()
     if not races:
@@ -432,67 +457,67 @@ def user_picks_page():
         
         for r in group_races:
             is_locked = r.get("locked", False)
-            lock_msg = "🔒 **LOCKED** - Picks can no longer be changed." if is_locked else "🟢 **OPEN**"
+            lock_msg = "🔒 **LOCKED**" if is_locked else "🟢 **OPEN**"
             
             with st.expander(f"Race {r.get('order')}: {r.get('name')} | {r.get('racetrack')} | {r.get('distance')} | {lock_msg}", expanded=True):
-                horses = db.get_horses_for_race(r['id'])
+                entries = db.get_entries_for_race(r['id'])
                 
-                if not horses:
+                if not entries:
                     st.write("No entries yet.")
                     continue
                     
-                current_pick_id = user_picks.get(r['id'])
-                race_results = r.get("results", {})
+                current_pick_tid = user_picks.get(r['id'])
+                race_results = r.get("results", {}) # { "1": trainer_id }
                 results_inv = {v: k for k, v in race_results.items()}
                 
                 # Show current pick prominently
-                if current_pick_id:
-                    ch = next((h for h in horses if h['id'] == current_pick_id), None)
-                    if ch:
-                        st.success(f"**Your Pick:** {ch.get('umamusume')} (Trained by {ch.get('trainer')})")
+                if current_pick_tid:
+                    centry = next((e for e in entries if e['trainer_id'] == current_pick_tid), None)
+                    if centry:
+                        st.success(f"**Your Pick:** {centry.get('umamusume')} (Trained by {centry.get('trainer_name')})")
                 else:
                     st.warning("You have not made a pick for this race.")
                     
                 st.markdown("#### The Field")
-                for h in horses:
+                for e in entries:
                     with st.container():
                         col_himg, col_timg, col_name, col_stats, col_btn = st.columns([1, 1, 3, 1, 2])
                         with col_himg:
                             try:
-                                img = load_image_from_url(h.get('horse_img_url'), width=60)
+                                img = load_image_from_url(e.get('horse_img_url'), width=60)
                                 st.image(img, width=60)
                             except:
                                 st.write("🏇")
                         with col_timg:
                             try:
-                                timg = load_image_from_url(h.get('trainer_img_url'), width=60)
+                                timg = load_image_from_url(e.get('trainer_img_url'), width=60)
                                 st.image(timg, width=60)
                             except:
                                 pass
                         with col_name:
-                            st.markdown(f"**{h.get('umamusume')}**")
-                            st.caption(f"Tr: {h.get('trainer')}")
+                            st.markdown(f"**{e.get('umamusume')}**")
+                            st.caption(f"Tr: {e.get('trainer_name')}")
                         with col_stats:
-                            if h['id'] in results_inv:
-                                place = results_inv[h['id']]
+                            if e['trainer_id'] in results_inv:
+                                place = results_inv[e['trainer_id']]
                                 pts = points_cfg.get(place, 0)
                                 st.markdown(f"<div style='text-align:center;'><b>🏆 {place}</b><br>{pts} pts</div>", unsafe_allow_html=True)
-                            elif h.get('stats_img_url'):
+                            elif e.get('stats_img_url'):
                                 with st.popover("Stats"):
                                     try:
-                                        simg = load_image_from_url(h.get('stats_img_url'), width=300)
+                                        simg = load_image_from_url(e.get('stats_img_url'), width=300)
                                         st.image(simg, use_container_width=True)
                                     except:
                                         st.write("No stats available.")
                         with col_btn:
                             if not is_locked:
-                                btn_label = "✅ Selected" if h['id'] == current_pick_id else "Select"
-                                is_disabled = h['id'] == current_pick_id
-                                if st.button(btn_label, disabled=is_disabled, key=f"sel_{r['id']}_{h['id']}"):
-                                    if db.make_pick(st.session_state.user, r['id'], h['id']):
+                                btn_label = "✅ Selected" if e['trainer_id'] == current_pick_tid else "Select"
+                                is_disabled = e['trainer_id'] == current_pick_tid
+                                if st.button(btn_label, disabled=is_disabled, key=f"sel_{r['id']}_{e['trainer_id']}"):
+                                    if db.make_pick(st.session_state.user, r['id'], e['trainer_id']):
                                         st.toast("Pick saved successfully!", icon="✅")
                                         st.rerun()
-                            elif h['id'] == current_pick_id:
+                            elif e['trainer_id'] == current_pick_tid:
                                 st.info("Locked In")
                     st.markdown("---")
 
@@ -533,25 +558,25 @@ def leaderboard_page():
                 
             r_id = r['id']
             race_name = f"[{r.get('group', 'Default')}] {r.get('name', 'Unknown Race')}"
-            horses = db.get_horses_for_race(r_id)
+            entries = db.get_entries_for_race(r_id)
             
             for pick in picks_list:
                 if pick.get("race_id") == r_id:
                     p_uid = pick.get("username")
-                    p_hid = pick.get("horse_id")
+                    p_tid = pick.get("horse_id") # horse_id field in DB now stores trainer_id
                     
                     if p_uid not in scores:
                         scores[p_uid] = 0
                         user_breakdowns[p_uid] = []
                         
-                    for place, winner_hid in results.items():
-                        if p_hid == winner_hid:
+                    for place, winner_tid in results.items():
+                        if p_tid == winner_tid:
                             pts = int(points_cfg.get(place, 0))
                             scores[p_uid] += pts
                             
-                            winning_h = next((h for h in horses if h['id'] == winner_hid), None)
-                            h_name = winning_h.get('umamusume', 'Unknown') if winning_h else 'Unknown'
-                            t_name = winning_h.get('trainer', 'Unknown Trainer') if winning_h else 'Unknown Trainer'
+                            winning_e = next((e for e in entries if e['trainer_id'] == winner_tid), None)
+                            h_name = winning_e.get('umamusume', 'Unknown') if winning_e else 'Unknown'
+                            t_name = winning_e.get('trainer_name', 'Unknown Trainer') if winning_e else 'Unknown Trainer'
                             
                             user_breakdowns[p_uid].append({
                                 'race': race_name,
@@ -599,12 +624,12 @@ def leaderboard_page():
                 continue
             r_id = r['id']
             race_name = f"[{r.get('group', 'Default')}] {r.get('name', 'Unknown Race')}"
-            horses = db.get_horses_for_race(r_id)
-            for place, winner_hid in results.items():
-                winning_h = next((h for h in horses if h['id'] == winner_hid), None)
-                if winning_h:
-                    t_name = winning_h.get('trainer', 'Unknown Trainer')
-                    h_name = winning_h.get('umamusume', 'Unknown')
+            entries = db.get_entries_for_race(r_id)
+            for place, winner_tid in results.items():
+                winning_e = next((e for e in entries if e['trainer_id'] == winner_tid), None)
+                if winning_e:
+                    t_name = winning_e.get('trainer_name', 'Unknown Trainer')
+                    h_name = winning_e.get('umamusume', 'Unknown')
                     
                     if t_name not in trainer_scores:
                         trainer_scores[t_name] = 0

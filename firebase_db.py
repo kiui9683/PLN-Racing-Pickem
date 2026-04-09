@@ -6,17 +6,37 @@ import bcrypt
 @st.cache_resource
 def get_db():
     if not firebase_admin._apps:
-        if "firebase" in st.secrets:
-            # Load from Streamlit secrets
-            cred = credentials.Certificate(dict(st.secrets["firebase"]))
-            firebase_admin.initialize_app(cred)
-        else:
+        # 1. Try local firebase_credentials.toml first (for local scripts/dev)
+        import os
+        toml_path = "firebase_credentials.toml"
+        if os.path.exists(toml_path):
             try:
-                # Load from local file during development if secrets are not set
-                cred = credentials.Certificate("firebase_credentials.json")
+                import tomllib
+                with open(toml_path, "rb") as f:
+                    config = tomllib.load(f)
+                    if "firebase" in config:
+                        cred = credentials.Certificate(config["firebase"])
+                        firebase_admin.initialize_app(cred)
+                        return firestore.client()
+            except Exception as e:
+                pass # Fallback to secrets or json
+
+        # 2. Try Streamlit secrets
+        try:
+            if "firebase" in st.secrets:
+                cred = credentials.Certificate(dict(st.secrets["firebase"]))
                 firebase_admin.initialize_app(cred)
-            except Exception:
-                return None
+                return firestore.client()
+        except Exception:
+            pass
+
+        # 3. Try local json during development
+        try:
+            cred = credentials.Certificate("firebase_credentials.json")
+            firebase_admin.initialize_app(cred)
+            return firestore.client()
+        except Exception:
+            return None
     return firestore.client()
 
 def hash_password(password):
@@ -138,85 +158,111 @@ def clear_race_results(race_id):
     })
     return True
 
-# --- GLOBAL HORSES ---
-def get_all_global_horses():
+# --- TRAINERS ---
+def get_all_trainers():
     db = get_db()
     if not db: return []
-    docs = db.collection("global_horses").stream()
-    return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+    try:
+        docs = db.collection("trainers").stream()
+        return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+    except Exception as e:
+        st.error(f"Error fetching trainers: {e}")
+        return []
 
-def add_global_horse(umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url, division):
+def add_trainer(name, img_url, horses_dict):
+    """
+    horses_dict format:
+    {
+       "Sprint": [{"name": "U1", "img": "...", "stats": "..."}, {"name": "U2", "img": "...", "stats": "..."}],
+       ...
+    }
+    """
     db = get_db()
     if not db: return False
-    db.collection("global_horses").add({
-        "umamusume": umamusume,
-        "trainer": trainer,
-        "horse_img_url": horse_img_url,
-        "trainer_img_url": trainer_img_url,
-        "stats_img_url": stats_img_url,
-        "division": division
+    db.collection("trainers").add({
+        "name": name,
+        "img_url": img_url,
+        "horses": horses_dict
     })
     return True
 
-def delete_global_horse(horse_id):
+def delete_trainer(trainer_id):
     db = get_db()
     if not db: return False
-    db.collection("global_horses").document(horse_id).delete()
+    db.collection("trainers").document(trainer_id).delete()
     return True
 
-def edit_global_horse(horse_id, umamusume, trainer, horse_img_url, trainer_img_url, stats_img_url, division):
+def edit_trainer(trainer_id, name, img_url, horses_dict):
     db = get_db()
     if not db: return False
-    db.collection("global_horses").document(horse_id).update({
-        "umamusume": umamusume,
-        "trainer": trainer,
-        "horse_img_url": horse_img_url,
-        "trainer_img_url": trainer_img_url,
-        "stats_img_url": stats_img_url,
-        "division": division
+    db.collection("trainers").document(trainer_id).update({
+        "name": name,
+        "img_url": img_url,
+        "horses": horses_dict
     })
     return True
 
 # --- RACE ENTRIES ---
-def get_horses_for_race(race_id):
+def get_entries_for_race(race_id):
     db = get_db()
     if not db: return []
     
     # 1. Fetch entry docs matching race_id
     entry_docs = db.collection("race_entries").where("race_id", "==", race_id).stream()
-    entry_horse_ids = [doc.to_dict().get("horse_id") for doc in entry_docs]
+    entries = []
     
-    if not entry_horse_ids: 
-        return []
+    # 2. Fetch all trainers for lookup (or could fetch individually, but roster is small)
+    all_trainers = {t['id']: t for t in get_all_trainers()}
+    
+    for doc in entry_docs:
+        data = doc.to_dict()
+        trainer_id = data.get("trainer_id")
+        horse_index = data.get("horse_index", 0) # 0 or 1
+        division = data.get("division", "Unknown")
         
-    # 2. Fetch all global horses
-    all_horses = get_all_global_horses()
-    
-    # 3. Filter and return
-    res = [h for h in all_horses if h['id'] in entry_horse_ids]
-    return res
+        trainer = all_trainers.get(trainer_id)
+        if trainer:
+            # Extract the specific horse
+            horses_in_div = trainer.get("horses", {}).get(division, [])
+            selected_horse = horses_in_div[horse_index] if len(horses_in_div) > horse_index else {}
+            
+            entries.append({
+                "entry_id": doc.id,
+                "trainer_id": trainer_id,
+                "trainer_name": trainer.get("name"),
+                "trainer_img_url": trainer.get("img_url"),
+                "horse_index": horse_index,
+                "umamusume": selected_horse.get("name"),
+                "horse_img_url": selected_horse.get("img"),
+                "stats_img_url": selected_horse.get("stats"),
+                "division": division
+            })
+            
+    return entries
 
-def add_entry_to_race(race_id, horse_id):
+def add_entry_to_race(race_id, trainer_id, horse_index, division):
     db = get_db()
     if not db: return False
     
-    # Check if entry already exists to prevent dupes
+    # Check if entry already exists (trainer can only have one entry per race)
     existing = list(db.collection("race_entries")
                     .where("race_id", "==", race_id)
-                    .where("horse_id", "==", horse_id)
+                    .where("trainer_id", "==", trainer_id)
                     .stream())
-    if existing: return True # Already exists
+    if existing: return True
     
     db.collection("race_entries").add({
         "race_id": race_id,
-        "horse_id": horse_id
+        "trainer_id": trainer_id,
+        "horse_index": horse_index,
+        "division": division
     })
     return True
 
-def remove_entry_from_race(race_id, horse_id):
+def remove_entry_from_race(race_id, trainer_id):
     db = get_db()
     if not db: return False
-    docs = db.collection("race_entries").where("race_id", "==", race_id).where("horse_id", "==", horse_id).stream()
+    docs = db.collection("race_entries").where("race_id", "==", race_id).where("trainer_id", "==", trainer_id).stream()
     for doc in docs:
         doc.reference.delete()
     return True
