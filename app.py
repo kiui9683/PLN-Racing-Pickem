@@ -114,7 +114,7 @@ def admin_page():
     st.title("🛠️ Management Panel")
     st.caption("Manage the entire Pick'em site from here.")
     
-    tabs_list = ["Races", "Trainers (Roster)", "Entries (Races)", "Operations", "Points Config"]
+    tabs_list = ["Races", "Horse Library", "Trainers (Roster)", "Entries (Races)", "Operations", "Points Config"]
     if st.session_state.role == "admin":
         tabs_list.append("Users")
     
@@ -172,41 +172,81 @@ def admin_page():
                             db.delete_race(r['id'])
                             st.rerun()
 
-    # 2. TRAINERS (ROSTER)
+    # 2. HORSE LIBRARY
     with tabs[1]:
-        st.subheader("Trainer Roster")
-        st.write("Add and edit trainers with their horse rosters (2 per division).")
-        
-        with st.form("add_trainer_form"):
-            t_name = st.text_input("Trainer Name")
-            t_img = st.text_input("Trainer Image URL")
-            
-            st.markdown("#### Horse Roster (2 per division)")
-            divisions = ["Sprint", "Mile", "Medium", "Long"]
-            t_horses = {}
-            
-            for div in divisions:
-                st.markdown(f"**{div} Division**")
-                colA, colB = st.columns(2)
-                h_list = []
-                for i in range(2):
-                    with (colA if i == 0 else colB):
-                        st.write(f"Horse {i+1}")
-                        hn = st.text_input(f"Name", key=f"add_{div}_{i}_name")
-                        hi = st.text_input(f"Image URL", key=f"add_{div}_{i}_img")
-                        hs = st.text_input(f"Stats URL", key=f"add_{div}_{i}_stats")
-                        h_list.append({"name": hn, "img": hi, "stats": hs})
-                t_horses[div] = h_list
-            
-            if st.form_submit_button("Add Trainer"):
-                if t_name:
-                    if db.add_trainer(t_name, t_img, t_horses):
-                        st.success("Trainer added!")
+        st.subheader("Global Horse Library")
+        st.write("Add horses to the central pool. These can be assigned to multiple trainers.")
+        with st.form("add_to_library_form"):
+            lh_name = st.text_input("Horse Name")
+            lh_img = st.text_input("Horse Image URL")
+            if st.form_submit_button("Add to Library"):
+                if lh_name and lh_img:
+                    if db.add_global_pool_horse(lh_name, lh_img):
+                        st.success(f"{lh_name} added to library!")
                         st.rerun()
-                    else:
-                        st.error("Failed to add.")
                 else:
-                    st.warning("Trainer name is required.")
+                    st.warning("Please provide both name and image URL.")
+        
+        st.markdown("---")
+        lib_horses = db.get_global_pool_horses()
+        if lib_horses:
+            for lh in lib_horses:
+                col1, col2 = st.columns([4, 1])
+                col1.write(f"**{lh['name']}**")
+                if col2.button("Delete", key=f"del_lib_{lh['id']}"):
+                    db.delete_global_pool_horse(lh['id'])
+                    st.rerun()
+        else:
+            st.info("No horses in library.")
+
+    # 3. TRAINERS (ROSTER)
+    with tabs[2]:
+        st.subheader("Trainer Roster")
+        st.write("Add and edit trainers. Select horses from the Library for each division.")
+        
+        lib_horses = db.get_global_pool_horses()
+        if not lib_horses:
+            st.warning("Please add horses to the Horse Library first.")
+        else:
+            lh_options = {lh['id']: lh['name'] for lh in lib_horses}
+            lh_data = {lh['id']: lh for lh in lib_horses}
+            
+            with st.form("add_trainer_form"):
+                t_name = st.text_input("Trainer Name")
+                t_img = st.text_input("Trainer Image URL")
+                
+                st.markdown("#### Horse Roster (2 per division)")
+                divisions = ["Sprint", "Mile", "Medium", "Long"]
+                t_horses = {}
+                
+                for div in divisions:
+                    st.markdown(f"**{div} Division**")
+                    colA, colB = st.columns(2)
+                    h_list = []
+                    for i in range(2):
+                        with (colA if i == 0 else colB):
+                            st.write(f"Slot {i+1}")
+                            lh_id = st.selectbox("Select Horse", options=list(lh_options.keys()), format_func=lambda x: lh_options[x], key=f"add_{div}_{i}_lh")
+                            hs = st.text_input(f"Unique Stats URL", key=f"add_{div}_{i}_stats")
+                            
+                            chosen_lh = lh_data[lh_id]
+                            h_list.append({
+                                "name": chosen_lh['name'], 
+                                "img": chosen_lh['image_url'], 
+                                "stats": hs, 
+                                "horse_id": lh_id
+                            })
+                    t_horses[div] = h_list
+                
+                if st.form_submit_button("Add Trainer"):
+                    if t_name:
+                        if db.add_trainer(t_name, t_img, t_horses):
+                            st.success("Trainer added!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to add.")
+                    else:
+                        st.warning("Trainer name is required.")
         
         st.markdown("---")
         st.subheader("Existing Trainers")
@@ -221,18 +261,33 @@ def admin_page():
                     for div in ["Sprint", "Mile", "Medium", "Long"]:
                         st.markdown(f"**{div} Division**")
                         colA, colB = st.columns(2)
-                        h_list = t.get("horses", {}).get(div, [{"name":"", "img":"", "stats":""}, {"name":"", "img":"", "stats":""}])
-                        # Ensure we have 2
-                        while len(h_list) < 2: h_list.append({"name":"", "img":"", "stats":""})
+                        h_list = t.get("horses", {}).get(div, [])
+                        # Ensure we have data even if lib changed
+                        while len(h_list) < 2: h_list.append({"name":"", "img":"", "stats":"", "horse_id":""})
                         
                         new_h_list = []
                         for i in range(2):
                             with (colA if i == 0 else colB):
-                                st.write(f"Horse {i+1}")
-                                hn = st.text_input(f"Name", value=h_list[i].get("name", ""), key=f"edit_{t['id']}_{div}_{i}_name")
-                                hi = st.text_input(f"Image", value=h_list[i].get("img", ""), key=f"edit_{t['id']}_{div}_{i}_img")
-                                hs = st.text_input(f"Stats", value=h_list[i].get("stats", ""), key=f"edit_{t['id']}_{div}_{i}_stats")
-                                new_h_list.append({"name": hn, "img": hi, "stats": hs})
+                                st.write(f"Slot {i+1}")
+                                curr_h_id = h_list[i].get("horse_id", "")
+                                
+                                # Find index in current library or append if missing
+                                lib_ids = list(lh_options.keys())
+                                if curr_h_id in lib_ids:
+                                    sel_idx = lib_ids.index(curr_h_id)
+                                else:
+                                    sel_idx = 0
+                                
+                                lh_id_edit = st.selectbox("Select Horse", options=lib_ids, format_func=lambda x: lh_options[x], index=sel_idx, key=f"edit_{t['id']}_{div}_{i}_lh")
+                                hs = st.text_input(f"Unique Stats URL", value=h_list[i].get("stats", ""), key=f"edit_{t['id']}_{div}_{i}_stats")
+                                
+                                chosen_lh = lh_data[lh_id_edit]
+                                new_h_list.append({
+                                    "name": chosen_lh['name'], 
+                                    "img": chosen_lh['image_url'], 
+                                    "stats": hs, 
+                                    "horse_id": lh_id_edit
+                                })
                         e_horses[div] = new_h_list
                         
                     col_save, col_del = st.columns(2)
@@ -244,8 +299,8 @@ def admin_page():
                         db.delete_trainer(t['id'])
                         st.rerun()
 
-    # 3. ENTRIES (RACES)
-    with tabs[2]:
+    # 4. ENTRIES (RACES)
+    with tabs[3]:
         st.subheader("Assign Trainer Entries to Races")
         races = db.get_all_races()
         if not races:
@@ -305,8 +360,8 @@ def admin_page():
                     db.remove_entry_from_race(selected_race_id, ent['trainer_id'])
                     st.rerun()
 
-    # 4. OPERATIONS
-    with tabs[3]:
+    # 5. OPERATIONS
+    with tabs[4]:
         st.subheader("Race Locks & Results")
         races = db.get_all_races()
         if races:
@@ -366,8 +421,8 @@ def admin_page():
                                     st.success("Results cleared!")
                                     st.rerun()
 
-    # 5. POINTS CONFIG
-    with tabs[4]:
+    # 6. POINTS CONFIG
+    with tabs[5]:
         st.subheader("Points Settings")
         pts = db.get_points_config()
         
@@ -404,9 +459,9 @@ def admin_page():
                     st.success(f"Deleted {delete_place}")
                     st.rerun()
 
-    # 6. USERS (Admin Only)
-    if st.session_state.role == "admin" and len(tabs) > 5:
-        with tabs[5]:
+    # 7. USERS (Admin Only)
+    if st.session_state.role == "admin" and len(tabs) > 6:
+        with tabs[6]:
             st.subheader("User Management")
             users = db.get_all_users()
             for u in sorted(users, key=lambda x: x['role']):

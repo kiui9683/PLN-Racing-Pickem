@@ -159,6 +159,31 @@ def clear_race_results(race_id):
     return True
 
 # --- TRAINERS ---
+def get_global_pool_horses():
+    db = get_db()
+    if not db: return []
+    try:
+        docs = db.collection("global_pool_horses").stream()
+        return [{**doc.to_dict(), "id": doc.id} for doc in docs]
+    except Exception as e:
+        st.error(f"Error fetching global horses: {e}")
+        return []
+
+def add_global_pool_horse(name, image_url):
+    db = get_db()
+    if not db: return False
+    db.collection("global_pool_horses").add({
+        "name": name,
+        "image_url": image_url
+    })
+    return True
+
+def delete_global_pool_horse(horse_id):
+    db = get_db()
+    if not db: return False
+    db.collection("global_pool_horses").document(horse_id).delete()
+    return True
+
 def get_all_trainers():
     db = get_db()
     if not db: return []
