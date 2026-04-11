@@ -342,7 +342,13 @@ def admin_page():
                     h_roster = trainer_obj.get("horses", {}).get(req_div, [])
                     while len(h_roster) < 2: h_roster.append({"name": f"Unknown {len(h_roster)+1}"})
                     
-                    h_choice = st.radio("Choose Horse", options=[0, 1], format_func=lambda i: h_roster[i].get("name", f"Horse {i+1}"))
+                    # Add placeholder option
+                    h_options_radio = [0, 1, -1]
+                    def format_h_choice(i):
+                        if i == -1: return "None / Placeholder"
+                        return h_roster[i].get("name", f"Horse {i+1}")
+                    
+                    h_choice = st.radio("Choose Horse", options=h_options_radio, format_func=format_h_choice)
                     
                     if st.form_submit_button("Assign Trainer & Horse"):
                         if db.add_entry_to_race(selected_race_id, t_choose, h_choice, req_div):
@@ -401,7 +407,9 @@ def admin_page():
                                 sorted_placements = sorted(pts_cfg.keys(), key=lambda x: int(x) if x.isdigit() else x)
                                 max_places = min(len(entries), len(sorted_placements))
                                 for place in sorted_placements[:max_places]:
-                                    res_inputs[place] = st.selectbox(f"{place} Place", options=list(h_options.keys()), format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
+                                    # Sort entry options alphabetically by trainer/horse name for results
+                                    h_keys = sorted(list(h_options.keys()), key=lambda x: h_options[x].lower())
+                                    res_inputs[place] = st.selectbox(f"{place} Place", options=h_keys, format_func=lambda x: h_options[x], key=f"{place}_{r['id']}")
                                 
                                 col_s, col_c = st.columns(2)
                                 if col_s.form_submit_button("Save Results"):

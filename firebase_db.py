@@ -163,7 +163,7 @@ def get_global_pool_horses():
     db = get_db()
     if not db: return []
     try:
-        docs = db.collection("global_pool_horses").stream()
+        docs = db.collection("global_pool_horses").order_by("name").stream()
         return [{**doc.to_dict(), "id": doc.id} for doc in docs]
     except Exception as e:
         st.error(f"Error fetching global horses: {e}")
@@ -188,7 +188,7 @@ def get_all_trainers():
     db = get_db()
     if not db: return []
     try:
-        docs = db.collection("trainers").stream()
+        docs = db.collection("trainers").order_by("name").stream()
         return [{**doc.to_dict(), "id": doc.id} for doc in docs]
     except Exception as e:
         st.error(f"Error fetching trainers: {e}")
@@ -242,14 +242,21 @@ def get_entries_for_race(race_id):
     for doc in entry_docs:
         data = doc.to_dict()
         trainer_id = data.get("trainer_id")
-        horse_index = data.get("horse_index", 0) # 0 or 1
+        horse_index = data.get("horse_index", 0) # 0 or 1, or -1 for placeholder
         division = data.get("division", "Unknown")
         
         trainer = all_trainers.get(trainer_id)
         if trainer:
-            # Extract the specific horse
-            horses_in_div = trainer.get("horses", {}).get(division, [])
-            selected_horse = horses_in_div[horse_index] if len(horses_in_div) > horse_index else {}
+            # Extract the specific horse or use placeholder
+            if horse_index == -1:
+                selected_horse = {
+                    "name": "TBD / Placeholder",
+                    "img": None,
+                    "stats": None
+                }
+            else:
+                horses_in_div = trainer.get("horses", {}).get(division, [])
+                selected_horse = horses_in_div[horse_index] if len(horses_in_div) > horse_index else {"name": "Unknown"}
             
             entries.append({
                 "entry_id": doc.id,
@@ -262,7 +269,9 @@ def get_entries_for_race(race_id):
                 "stats_img_url": selected_horse.get("stats"),
                 "division": division
             })
-            
+    
+    # Sort entries by horse name (umamusume)
+    entries.sort(key=lambda x: x.get("umamusume", "").lower())
     return entries
 
 def add_entry_to_race(race_id, trainer_id, horse_index, division):
