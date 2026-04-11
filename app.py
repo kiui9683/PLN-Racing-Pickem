@@ -4,6 +4,7 @@ from PIL import Image
 import requests
 from io import BytesIO
 import pandas as pd
+import re
 
 st.set_page_config(page_title="PLN Racing Festival Pick'em", page_icon="🏇", layout="wide")
 
@@ -53,6 +54,14 @@ def load_image_from_url(url, width=None):
         return img
     except Exception:
         return Image.new('RGB', (100, 100), color=(30, 34, 43))
+
+def get_division_from_distance(dist_str):
+    dist_match = re.search(r'\d+', str(dist_str))
+    dist_val = int(dist_match.group()) if dist_match else 0
+    if dist_val < 1600: return 'Sprint'
+    if dist_val < 2000: return 'Mile'
+    if dist_val < 2500: return 'Medium'
+    return 'Long'
 
 # --- SESSION STATE ---
 if 'user' not in st.session_state:
@@ -310,17 +319,9 @@ def admin_page():
             selected_race_id = st.selectbox("Select Race", options=list(race_options.keys()), format_func=lambda x: race_options[x])
             
             sel_race = next((rt for rt in races if rt['id'] == selected_race_id), None)
-            req_div = "Unknown"
+            req_div = get_division_from_distance(sel_race.get('distance', '0')) if sel_race else "Unknown"
             if sel_race:
-                import re
-                dist_str = sel_race.get('distance', '0')
-                dist_match = re.search(r'\d+', dist_str)
-                dist_val = int(dist_match.group()) if dist_match else 0
-                if dist_val < 1600: req_div = 'Sprint'
-                elif dist_val < 2000: req_div = 'Mile'
-                elif dist_val < 2500: req_div = 'Medium'
-                else: req_div = 'Long'
-                st.info(f"**Race Distance**: {dist_str} ➡️ **Required Division**: {req_div}")
+                st.info(f"**Race Distance**: {sel_race.get('distance', '0')} ➡️ **Required Division**: {req_div}")
             
             curr_entries = db.get_entries_for_race(selected_race_id)
             current_trainer_ids = [e['trainer_id'] for e in curr_entries]
@@ -354,6 +355,33 @@ def admin_page():
                         if db.add_entry_to_race(selected_race_id, t_choose, h_choice, req_div):
                             st.success("Trainer entered!")
                             st.rerun()
+
+            st.markdown("---")
+            with st.expander("⚡ Bulk Entry by Race Group"):
+                st.write("Add multiple trainers to all races in a group at once. Horses will be set to 'TBD / Placeholder'.")
+                all_tr = db.get_all_trainers()
+                if all_tr:
+                    unique_grps = sorted(list(set([r.get("group", "Default") for r in races])))
+                    
+                    bulk_t_ids = st.multiselect("Select Trainers", options=[t['id'] for t in all_tr], format_func=lambda x: next(t['name'] for t in all_tr if t['id'] == x))
+                    bulk_group = st.selectbox("Select Race Group", options=unique_grps)
+                    
+                    if st.button("Bulk Enter Trainers"):
+                        if not bulk_t_ids:
+                            st.warning("Please select at least one trainer.")
+                        else:
+                            races_in_grp = [r for r in races if r.get("group", "Default") == bulk_group]
+                            if not races_in_grp:
+                                st.warning(f"No races found in group '{bulk_group}'.")
+                            else:
+                                for r in races_in_grp:
+                                    r_div = get_division_from_distance(r.get('distance', '0'))
+                                    for t_id in bulk_t_ids:
+                                        db.add_entry_to_race(r['id'], t_id, -1, r_div)
+                                st.success(f"Processed {len(bulk_t_ids)} trainers for all races in {bulk_group}.")
+                                st.rerun()
+                else:
+                    st.info("No trainers available.")
             
             st.markdown("---")
             st.subheader("Current Entries in Race")
