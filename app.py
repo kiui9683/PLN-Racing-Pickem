@@ -412,6 +412,17 @@ def admin_page():
             
             for g_name, r_list in grp_races.items():
                 st.markdown(f"#### {g_name}")
+                colL, colU = st.columns(2)
+                if colL.button(f"Lock All: {g_name} 🔒", key=f"lock_all_{g_name}", use_container_width=True):
+                    for r in r_list:
+                        db.toggle_race_lock(r['id'], True)
+                    st.success(f"All races in {g_name} locked.")
+                    st.rerun()
+                if colU.button(f"Unlock All: {g_name} 🔓", key=f"unlock_all_{g_name}", use_container_width=True):
+                    for r in r_list:
+                        db.toggle_race_lock(r['id'], False)
+                    st.success(f"All races in {g_name} unlocked.")
+                    st.rerun()
                 for r in r_list:
                     with st.expander(f"Race {r.get('order')}: {r.get('name')}"):
                         # Lock status
